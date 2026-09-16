@@ -621,13 +621,13 @@ export class GameState {
   private hillsSpeedMultiplierFor(troopOwnerId: PlayerId, tile: Offset): number {
     if (this.terrainAt(tile) !== 'hills') return 1;
     const onTile = this.tileOccupiedByBuilding(tile);
-    if (onTile?.type === 'house' && onTile.ownerId === troopOwnerId) {
+    if (onTile?.type === 'house' && onTile.state === 'active' && onTile.ownerId === troopOwnerId) {
       return 1 / TERRAIN.hills.moveTimeMult; // cancels the hills penalty entirely for the owner
     }
     for (const n of neighborsOf(tile)) {
       if (this.terrainAt(n) !== 'hills') continue;
       const nb = this.tileOccupiedByBuilding(n);
-      if (nb?.type === 'house' && nb.ownerId !== troopOwnerId) {
+      if (nb?.type === 'house' && nb.state === 'active' && nb.ownerId !== troopOwnerId) {
         return HOUSE_HILLS_ENEMY_DEBUFF_MULT;
       }
     }
@@ -642,6 +642,12 @@ export class GameState {
     return candidates[0];
   }
 
+  /**
+   * Rubble physically blocks new construction (see canBuildAt) but not foot
+   * traffic -- it has to stay crossable or destroying a building would seal
+   * off whatever was behind it instead of opening a way through, and the
+   * owner might not even be able to afford clearing it right away.
+   */
   private isTilePassableFor(troop: Troop, tile: Offset): boolean {
     const t = this.tiles.get(key(tile));
     if (!t) return false;
@@ -649,7 +655,8 @@ export class GameState {
     const terrain = TERRAIN[t.terrain];
     if (terrain.impassableForGroundTroops && !def.canCrossMountains) return false;
     if (terrain.requiresBoatOrBridge) return false;
-    if (this.tileOccupiedByBuilding(tile)) return false;
+    const occupant = this.tileOccupiedByBuilding(tile);
+    if (occupant && occupant.state !== 'destroyed') return false;
     return true;
   }
 
