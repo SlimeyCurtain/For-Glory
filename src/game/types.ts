@@ -1,4 +1,4 @@
-import type { BuildingType, TroopType } from './balance';
+import type { BuildingType, ResourceKey, TroopType } from './balance';
 import type { Offset } from './hex';
 
 export type PlayerId = 1 | 2;
@@ -8,6 +8,8 @@ export interface PlayerState {
   gold: number;
   food: number;
   straw: number;
+  wood: number;
+  stone: number;
   score: number;
   castleId: string;
 }
@@ -18,6 +20,13 @@ export interface Training {
   troopType: TroopType;
   remainingMs: number;
   totalMs: number;
+}
+
+export interface ProductionFeed {
+  resource: ResourceKey;
+  amount: number;
+  intervalMs: number;
+  accumMs: number;
 }
 
 export interface Building {
@@ -33,13 +42,10 @@ export interface Building {
   training: Training | null;
   repairing: boolean;
   pillagedBy: string | null; // troop id currently pillaging this building
-  /** Farm-only: this instance's income rates, which depend on whether it was built next to water. */
-  foodPerTick?: number;
-  foodTickIntervalMs?: number;
-  foodTickAccumMs?: number;
-  strawPerTick?: number;
-  strawTickIntervalMs?: number;
-  strawTickAccumMs?: number;
+  /** This instance's production, computed once at construction from its tile/adjacency context. */
+  production: ProductionFeed[];
+  /** Extra per-resource upkeep beyond the building type's base (e.g. House's mountain-adjacency bonus). */
+  extraUpkeep?: Partial<Record<ResourceKey, number>>;
   /** Castle-only: cooldown remaining before its next ranged shot. */
   attackCooldownMs?: number;
 }

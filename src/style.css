@@ -148,6 +148,38 @@ body.desktop-mode #app {
   font-variant-numeric: tabular-nums;
 }
 
+.hud-rate {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.hud-value.negative,
+.hud-rate.negative {
+  color: #ef4444;
+  opacity: 1;
+}
+
+.special-trait {
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 2px 0 4px;
+}
+
+.special-trait-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 3px;
+}
+
+.special-trait-text {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 #banner {
   position: absolute;
   top: 54px;

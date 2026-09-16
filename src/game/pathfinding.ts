@@ -8,6 +8,8 @@ export interface PathOptions {
   canCrossRiver: boolean; // true if unit has boat, or a bridge exists (future feature)
   /** tiles currently occupied by buildings/blocking troops, other than start/goal */
   blocked: Set<string>;
+  /** Extra per-tile time multiplier (e.g. a House's hills effect); defaults to 1. */
+  speedMultiplierFor?: (o: Offset) => number;
 }
 
 export function tileCrossMs(o: Offset, tiles: TileMap, opts: PathOptions): number {
@@ -17,7 +19,8 @@ export function tileCrossMs(o: Offset, tiles: TileMap, opts: PathOptions): numbe
   if (def.impassableForGroundTroops && !opts.canCrossMountains) return Infinity;
   if (def.requiresBoatOrBridge && !opts.canCrossRiver) return Infinity;
   if (def.moveTimeMult === Infinity) return Infinity;
-  return BASE_TILE_CROSS_MS * def.moveTimeMult;
+  const extra = opts.speedMultiplierFor ? opts.speedMultiplierFor(o) : 1;
+  return BASE_TILE_CROSS_MS * def.moveTimeMult * extra;
 }
 
 /**

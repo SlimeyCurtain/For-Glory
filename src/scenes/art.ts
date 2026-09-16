@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { TERRAIN } from '../game/balance';
-import type { TerrainType } from '../game/balance';
+import type { BuildingType, TerrainType } from '../game/balance';
 
 type Point = { x: number; y: number };
 type G = Phaser.GameObjects.Graphics;
@@ -180,10 +180,23 @@ function drawCobblestones(g: G, center: Point, rng: () => number) {
 
 // ---------- building icons ----------
 
-export function drawBuildingIcon(g: G, type: 'castle' | 'farm' | 'barracks', x: number, y: number, ownerColor: number) {
-  if (type === 'castle') drawCastleIcon(g, x, y, ownerColor);
-  else if (type === 'farm') drawFarmIcon(g, x, y, ownerColor);
-  else drawBarracksIcon(g, x, y, ownerColor);
+export function drawBuildingIcon(g: G, type: BuildingType, x: number, y: number, ownerColor: number) {
+  switch (type) {
+    case 'castle':
+      return drawCastleIcon(g, x, y, ownerColor);
+    case 'farm':
+      return drawFarmIcon(g, x, y, ownerColor);
+    case 'barracks':
+      return drawBarracksIcon(g, x, y, ownerColor);
+    case 'lumberMill':
+      return drawLumberMillIcon(g, x, y, ownerColor);
+    case 'quarry':
+      return drawQuarryIcon(g, x, y, ownerColor);
+    case 'fishersHut':
+      return drawFishersHutIcon(g, x, y, ownerColor);
+    case 'house':
+      return drawHouseIcon(g, x, y, ownerColor);
+  }
 }
 
 function drawCastleIcon(g: G, x: number, y: number, ownerColor: number) {
@@ -306,9 +319,136 @@ function drawBarracksIcon(g: G, x: number, y: number, ownerColor: number) {
   g.fillPath();
 }
 
-// ---------- troop icon ----------
+function drawLumberMillIcon(g: G, x: number, y: number, ownerColor: number) {
+  // stacked logs beside the shed
+  for (let i = 0; i < 3; i++) {
+    const lx = x - 17;
+    const ly = y + 4 - i * 4.2;
+    g.fillStyle(i % 2 === 0 ? 0x8a5a30 : 0x9c6a3a, 1);
+    g.fillCircle(lx, ly, 4.4);
+    g.lineStyle(1, 0x5a3a1c, 1);
+    g.strokeCircle(lx, ly, 4.4);
+    g.fillStyle(0xc9a06a, 1);
+    g.fillCircle(lx, ly, 1.6);
+  }
 
-export function drawSwordsmanIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(0x8b5e34, 1);
+  g.fillRect(x - 8, y - 1, 22, 12);
+  g.lineStyle(2, ownerColor, 1);
+  g.strokeRect(x - 8, y - 1, 22, 12);
+
+  g.fillStyle(0x5a3a1c, 1);
+  g.beginPath();
+  g.moveTo(x - 10, y - 1);
+  g.lineTo(x + 3, y - 11);
+  g.lineTo(x + 16, y - 1);
+  g.closePath();
+  g.fillPath();
+
+  // circular saw blade on the shed face
+  g.fillStyle(0xb8bec7, 1);
+  g.fillCircle(x + 3, y + 5, 4);
+  g.lineStyle(1, 0x6b7280, 1);
+  for (let i = 0; i < 8; i++) {
+    const a = (Math.PI / 4) * i;
+    g.lineBetween(x + 3, y + 5, x + 3 + Math.cos(a) * 5, y + 5 + Math.sin(a) * 5);
+  }
+}
+
+function drawQuarryIcon(g: G, x: number, y: number, ownerColor: number) {
+  // rocky pile
+  const rocks: [number, number, number][] = [
+    [-10, 6, 8],
+    [2, 8, 9],
+    [12, 6, 7],
+    [-2, 2, 7],
+  ];
+  for (const [dx, dy, s] of rocks) {
+    g.fillStyle(0x8a8a8a, 1);
+    g.fillCircle(x + dx, y + dy, s * 0.6);
+    g.lineStyle(1, 0x5f5f5f, 1);
+    g.strokeCircle(x + dx, y + dy, s * 0.6);
+  }
+  g.fillStyle(0xd6d6d6, 0.8);
+  g.fillCircle(x - 3, y + 3, 2.4);
+
+  // pickaxe
+  g.lineStyle(2, 0x6b4423, 1);
+  g.lineBetween(x - 2, y - 4, x + 8, y - 12);
+  g.lineStyle(2.4, 0x8a8a8a, 1);
+  g.lineBetween(x + 3, y - 10, x + 11, y - 15);
+  g.lineBetween(x + 3, y - 10, x + 8, y - 4);
+
+  g.lineStyle(1.5, 0x3a3a3a, 1);
+  g.lineBetween(x - 16, y + 9, x - 16, y - 6);
+  g.fillStyle(ownerColor, 1);
+  g.beginPath();
+  g.moveTo(x - 16, y - 6);
+  g.lineTo(x - 9, y - 3.5);
+  g.lineTo(x - 16, y - 1);
+  g.closePath();
+  g.fillPath();
+}
+
+function drawFishersHutIcon(g: G, x: number, y: number, ownerColor: number) {
+  // dock planks
+  g.fillStyle(0x6b4a2a, 1);
+  for (let i = -1; i <= 1; i++) {
+    g.fillRect(x - 14, y + 6 + i * 3.4, 30, 2.2);
+  }
+
+  g.fillStyle(0x8b6a44, 1);
+  g.fillRect(x - 9, y - 4, 18, 11);
+  g.lineStyle(2, ownerColor, 1);
+  g.strokeRect(x - 9, y - 4, 18, 11);
+  g.fillStyle(0x5a3a1c, 1);
+  g.beginPath();
+  g.moveTo(x - 11, y - 4);
+  g.lineTo(x, y - 13);
+  g.lineTo(x + 11, y - 4);
+  g.closePath();
+  g.fillPath();
+
+  // a fish resting on the dock
+  g.fillStyle(0x4a90c4, 1);
+  g.fillEllipse(x + 12, y + 8, 8, 3.6);
+  g.beginPath();
+  g.moveTo(x + 17, y + 8);
+  g.lineTo(x + 21, y + 5.5);
+  g.lineTo(x + 21, y + 10.5);
+  g.closePath();
+  g.fillPath();
+}
+
+function drawHouseIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(0xcdbfa0, 1);
+  g.fillRect(x - 11, y - 3, 22, 13);
+  g.lineStyle(2, ownerColor, 1);
+  g.strokeRect(x - 11, y - 3, 22, 13);
+
+  g.fillStyle(0x8a3b2e, 1);
+  g.beginPath();
+  g.moveTo(x - 14, y - 3);
+  g.lineTo(x, y - 14);
+  g.lineTo(x + 14, y - 3);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(1, 0x5c2620, 1);
+  g.strokePath();
+
+  // door
+  g.fillStyle(0x5a3a1c, 1);
+  g.fillRect(x - 2.5, y + 2, 5, 8);
+  // window
+  g.fillStyle(0xbfe3f0, 1);
+  g.fillRect(x + 3, y - 1, 4.5, 4.5);
+  g.lineStyle(0.8, 0x5a3a1c, 1);
+  g.strokeRect(x + 3, y - 1, 4.5, 4.5);
+}
+
+// ---------- troop icons ----------
+
+export function drawMilitiaIcon(g: G, x: number, y: number, ownerColor: number) {
   g.fillStyle(ownerColor, 1);
   g.fillCircle(x, y + 2, 6.5);
   g.lineStyle(1, shade(ownerColor, -0.4), 1);
@@ -317,14 +457,37 @@ export function drawSwordsmanIcon(g: G, x: number, y: number, ownerColor: number
   g.fillStyle(0xe8b98a, 1);
   g.fillCircle(x, y - 5, 3.2);
 
-  g.lineStyle(1.6, 0xd8dce2, 1);
-  g.beginPath();
-  g.moveTo(x + 4, y - 3);
-  g.lineTo(x + 9, y - 9);
-  g.strokePath();
-  g.lineStyle(1.6, 0x8a5a2a, 1);
+  // a crude club, not a proper sword -- a levy, not a knight
+  g.lineStyle(2, 0x6b4423, 1);
   g.beginPath();
   g.moveTo(x + 3, y - 1);
-  g.lineTo(x + 5.5, y - 3.5);
+  g.lineTo(x + 8, y - 8);
   g.strokePath();
+  g.fillStyle(0x7a5230, 1);
+  g.fillCircle(x + 8.5, y - 8.5, 2.1);
+}
+
+export function drawArcherIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(ownerColor, 1);
+  g.fillCircle(x, y + 2, 6);
+  g.lineStyle(1, shade(ownerColor, -0.4), 1);
+  g.strokeCircle(x, y + 2, 6);
+
+  g.fillStyle(0xe8b98a, 1);
+  g.fillCircle(x, y - 5, 3);
+
+  // quiver on the back
+  g.fillStyle(0x6b4423, 1);
+  g.fillRect(x - 7, y - 4, 3, 7);
+  g.lineStyle(1, 0xd8dce2, 1);
+  g.lineBetween(x - 7, y - 4, x - 5.5, y - 8);
+  g.lineBetween(x - 5, y - 4, x - 3.5, y - 8);
+
+  // bow, held out front
+  g.lineStyle(1.6, 0x8a5a2a, 1);
+  g.beginPath();
+  g.arc(x + 3, y, 6.5, Math.PI * 0.35, Math.PI * 1.65, false);
+  g.strokePath();
+  g.lineStyle(0.8, 0xd8dce2, 0.9);
+  g.lineBetween(x + 7.5, y - 4.5, x + 7.5, y + 4.5);
 }

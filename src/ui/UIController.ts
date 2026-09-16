@@ -1,5 +1,5 @@
 import { BUILDINGS, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
-import type { BuildingType, TerrainType } from '../game/balance';
+import type { ResourceKey, TerrainType, TroopType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
 import type { Offset } from '../game/hex';
@@ -8,11 +8,31 @@ import type { Building, Troop } from '../game/types';
 
 const HUMAN = 1 as const;
 
+const RESOURCES: { key: ResourceKey; label: string }[] = [
+  { key: 'gold', label: 'Gold' },
+  { key: 'food', label: 'Food' },
+  { key: 'straw', label: 'Straw' },
+  { key: 'wood', label: 'Wood' },
+  { key: 'stone', label: 'Stone' },
+];
+
+/** Short suffix used when listing a resource cost inline, e.g. "10g + 25 straw". */
+const RESOURCE_SUFFIX: Record<ResourceKey, string> = {
+  gold: 'g',
+  food: 'f',
+  straw: ' straw',
+  wood: ' wood',
+  stone: ' stone',
+};
+
+function formatCost(cost: Partial<Record<ResourceKey, number>>): string {
+  const parts = RESOURCES.filter((r) => cost[r.key]).map((r) => `${cost[r.key]}${RESOURCE_SUFFIX[r.key]}`);
+  return parts.length > 0 ? parts.join(' + ') : 'Free';
+}
+
 export class UIController {
   private el: {
-    gold: HTMLElement;
-    food: HTMLElement;
-    straw: HTMLElement;
+    resources: Record<ResourceKey, { value: HTMLElement; rate: HTMLElement }>;
     timer: HTMLElement;
     scoreYou: HTMLElement;
     scoreOpp: HTMLElement;
@@ -43,9 +63,10 @@ export class UIController {
     this.mapView = mapView;
     root.innerHTML = `
       <div id="hud">
-        <div class="hud-group"><span class="hud-label">Gold</span><span id="hud-gold">0</span></div>
-        <div class="hud-group"><span class="hud-label">Food</span><span id="hud-food">0</span></div>
-        <div class="hud-group"><span class="hud-label">Straw</span><span id="hud-straw">0</span></div>
+        ${RESOURCES.map(
+          (r) =>
+            `<div class="hud-group"><span class="hud-label">${r.label}</span><span id="hud-${r.key}" class="hud-value">0</span><span id="hud-${r.key}-rate" class="hud-rate"></span></div>`
+        ).join('')}
         <div class="hud-group hud-timer"><span id="hud-timer">5:00</span></div>
         <div class="hud-group"><span class="hud-label">You</span><span id="hud-score-you">0</span></div>
         <div class="hud-group"><span class="hud-label">Foe</span><span id="hud-score-opp">0</span></div>
@@ -61,9 +82,12 @@ export class UIController {
       </div>
     `;
     this.el = {
-      gold: document.getElementById('hud-gold')!,
-      food: document.getElementById('hud-food')!,
-      straw: document.getElementById('hud-straw')!,
+      resources: Object.fromEntries(
+        RESOURCES.map((r) => [
+          r.key,
+          { value: document.getElementById(`hud-${r.key}`)!, rate: document.getElementById(`hud-${r.key}-rate`)! },
+        ])
+      ) as Record<ResourceKey, { value: HTMLElement; rate: HTMLElement }>,
       timer: document.getElementById('hud-timer')!,
       scoreYou: document.getElementById('hud-score-you')!,
       scoreOpp: document.getElementById('hud-score-opp')!,
@@ -121,9 +145,15 @@ export class UIController {
   onTick() {
     const you = this.state.players[HUMAN];
     const opp = this.state.players[this.state.opponentOf(HUMAN)];
-    this.el.gold.textContent = Math.floor(you.gold).toString();
-    this.el.food.textContent = Math.floor(you.food).toString();
-    this.el.straw.textContent = Math.floor(you.straw).toString();
+    for (const r of RESOURCES) {
+      const rate = this.state.netResourceRatePerSec(HUMAN, r.key);
+      const negative = rate < 0;
+      const els = this.el.resources[r.key];
+      els.value.textContent = Math.floor(you[r.key]).toString();
+      els.rate.textContent = Math.abs(rate) < 0.05 ? '' : `${rate > 0 ? '+' : ''}${rate.toFixed(1)}/s`;
+      els.value.classList.toggle('negative', negative);
+      els.rate.classList.toggle('negative', negative);
+    }
     this.el.scoreYou.textContent = you.score.toFixed(2);
     this.el.scoreOpp.textContent = opp.score.toFixed(2);
 
@@ -185,6 +215,8 @@ export class UIController {
       Math.floor(player.gold),
       Math.floor(player.food),
       Math.floor(player.straw),
+      Math.floor(player.wood),
+      Math.floor(player.stone),
     ]);
   }
 
@@ -207,6 +239,22 @@ export class UIController {
     this.el.banner.textContent = text;
     this.el.banner.classList.add('show');
     window.setTimeout(() => this.el.banner.classList.remove('show'), 1600);
+  }
+
+  /** A titled callout box for a building/troop's Special Trait, when it has one. */
+  private renderSpecialTrait(text?: string) {
+    if (!text) return;
+    const box = document.createElement('div');
+    box.className = 'special-trait';
+    const title = document.createElement('div');
+    title.className = 'special-trait-title';
+    title.textContent = 'Special Trait';
+    const body = document.createElement('div');
+    body.className = 'special-trait-text';
+    body.textContent = text;
+    box.appendChild(title);
+    box.appendChild(body);
+    this.el.panelBody.appendChild(box);
   }
 
   // ---------- path tracing (player-drawn movement/attack routes) ----------
@@ -261,6 +309,10 @@ export class UIController {
     }
     if (building.type === 'castle') {
       this.flashBanner('Castle requires siege units');
+      return;
+    }
+    if (!TROOPS[t.type].canAttackBuildings) {
+      this.flashBanner(`${TROOPS[t.type].name} cannot attack buildings`);
       return;
     }
     const pathEnd = this.tracedPath.length > 0 ? this.tracedPath[this.tracedPath.length - 1] : t.tile;
@@ -389,16 +441,17 @@ export class UIController {
     const tile = this.selectedTile;
     const options = this.state.availableBuildingsFor(HUMAN, tile);
     this.el.panelBody.innerHTML = '';
+    const player = this.state.players[HUMAN];
     for (const type of options) {
-      const def = BUILDINGS[type as BuildingType];
-      const player = this.state.players[HUMAN];
-      const affordable = player.gold >= def.goldCost && player.food >= def.foodCost;
+      const def = BUILDINGS[type];
+      const cost = this.state.previewBuildCost(HUMAN, type);
+      const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
       const btn = document.createElement('button');
       btn.className = 'action-btn';
       btn.disabled = !affordable;
-      btn.textContent = `${def.name} — ${def.goldCost}g${def.foodCost ? ` + ${def.foodCost}f` : ''}`;
+      btn.textContent = `${def.name} — ${formatCost(cost)}`;
       btn.addEventListener('click', () => {
-        const res = this.state.issueBuild(HUMAN, tile, type as BuildingType);
+        const res = this.state.issueBuild(HUMAN, tile, type);
         if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
         this.closePanel();
       });
@@ -437,14 +490,16 @@ export class UIController {
       return;
     }
 
-    if (b.type === 'farm' && b.foodPerTick != null && b.strawPerTick != null) {
+    if (b.production.length > 0) {
       const p = document.createElement('p');
       p.className = 'hint';
-      const foodSec = (b.foodTickIntervalMs ?? 5000) / 1000;
-      const strawSec = (b.strawTickIntervalMs ?? 5000) / 1000;
-      p.textContent = `+${b.foodPerTick} food / ${foodSec}s, +${b.strawPerTick} straw / ${strawSec}s`;
+      p.textContent = b.production.map((feed) => `+${feed.amount} ${feed.resource} / ${feed.intervalMs / 1000}s`).join(', ');
       this.el.panelBody.appendChild(p);
     }
+
+    this.renderSpecialTrait(BUILDINGS[b.type].specialTrait);
+
+    const player = this.state.players[HUMAN];
 
     if (b.type === 'barracks') {
       if (b.training) {
@@ -452,18 +507,23 @@ export class UIController {
         p.textContent = `Training ${TROOPS[b.training.troopType].name}… ${Math.ceil(b.training.remainingMs / 1000)}s`;
         this.el.panelBody.appendChild(p);
       } else {
-        const def = TROOPS.swordsman;
-        const player = this.state.players[HUMAN];
-        const affordable = player.gold >= def.goldCost && player.food >= def.foodCost;
-        const btn = document.createElement('button');
-        btn.className = 'action-btn';
-        btn.disabled = !affordable;
-        btn.textContent = `Train ${def.name} — ${def.goldCost}g + ${def.foodCost}f`;
-        btn.addEventListener('click', () => {
-          const res = this.state.issueTrain(HUMAN, b.id, 'swordsman');
-          if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
-        });
-        this.el.panelBody.appendChild(btn);
+        const hasWood = this.state.buildingsOf(HUMAN).some((x) => x.type === 'lumberMill' && x.state === 'active');
+        const trainable: TroopType[] = hasWood ? ['militia', 'archer'] : ['militia'];
+        for (const type of trainable) {
+          const def = TROOPS[type];
+          const cost: Partial<Record<ResourceKey, number>> = { gold: def.goldCost, food: def.foodCost };
+          if (def.woodCost) cost.wood = def.woodCost;
+          const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.disabled = !affordable;
+          btn.textContent = `Train ${def.name} — ${formatCost(cost)}`;
+          btn.addEventListener('click', () => {
+            const res = this.state.issueTrain(HUMAN, b.id, type);
+            if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+          });
+          this.el.panelBody.appendChild(btn);
+        }
       }
     }
 
@@ -494,6 +554,7 @@ export class UIController {
     }
     this.openPanel(`${TROOPS[t.type].name} — ${Math.ceil(t.hp)}/${t.maxHp} HP (${orderLabel(t)})`);
     this.el.panelBody.innerHTML = '';
+    this.renderSpecialTrait(TROOPS[t.type].specialTrait);
 
     const moveBtn = document.createElement('button');
     moveBtn.className = 'action-btn';
@@ -556,7 +617,7 @@ export class UIController {
       const targetBuilding = targetBuildingId ? this.state.buildings.get(targetBuildingId) : null;
       const btn = document.createElement('button');
       btn.className = 'action-btn';
-      btn.textContent = `Enemy swordsman → ${targetBuilding ? labelName(targetBuilding) : 'unknown'}`;
+      btn.textContent = `Enemy ${TROOPS[enemy.type].name} → ${targetBuilding ? labelName(targetBuilding) : 'unknown'}`;
       btn.addEventListener('click', () => {
         const res = this.state.issueInterceptOrder(t.id, enemy.id);
         if (!res.ok) this.flashBanner(res.reason ?? 'Failed');

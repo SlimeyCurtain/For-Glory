@@ -4,7 +4,7 @@ import { AIController } from '../game/AIController';
 import { hexCorners, offsetToPixel } from '../game/hex';
 import type { Offset } from '../game/hex';
 import type { Building, Troop } from '../game/types';
-import { drawBuildingIcon, drawHexTile, drawSwordsmanIcon, seededRng, tileSeed } from './art';
+import { drawArcherIcon, drawBuildingIcon, drawHexTile, drawMilitiaIcon, seededRng, tileSeed } from './art';
 
 export const MARGIN = 60;
 const PLAYER_COLOR: Record<1 | 2, number> = { 1: 0x2563eb, 2: 0xdc2626 };
@@ -191,7 +191,8 @@ export class MainScene extends Phaser.Scene implements MapView {
       entry.ring.lineStyle(2, orderRingColor(t), 1);
       entry.ring.strokeCircle(pixel.x, pixel.y, 9);
       entry.icon.clear();
-      drawSwordsmanIcon(entry.icon, pixel.x, pixel.y, PLAYER_COLOR[t.ownerId]);
+      const drawTroopIcon = t.type === 'archer' ? drawArcherIcon : drawMilitiaIcon;
+      drawTroopIcon(entry.icon, pixel.x, pixel.y, PLAYER_COLOR[t.ownerId]);
       entry.hpBar.setPosition(pixel.x - (20 * (1 - t.hp / t.maxHp)) / 2, pixel.y - 16);
       entry.hpBar.width = 20 * Math.max(0, t.hp / t.maxHp);
     }

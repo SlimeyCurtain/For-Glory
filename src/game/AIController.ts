@@ -1,4 +1,4 @@
-import { BUILDINGS, TROOPS } from './balance';
+import { TROOPS } from './balance';
 import type { BuildingType } from './balance';
 import { GameState } from './GameState';
 import type { PlayerId } from './types';
@@ -31,35 +31,31 @@ export class AIController {
   }
 
   private maybeBuild() {
-    const player = this.state.players[this.me];
-    const priority: BuildingType[] = ['barracks', 'farm'];
+    // Costs vary (farms escalate, some buildings need adjacency) so we just
+    // attempt each in priority order and let issueBuild's own validation
+    // reject whatever isn't affordable or buildable yet -- simpler than
+    // duplicating that logic here, and stays correct as balance changes.
+    const priority: BuildingType[] = ['barracks', 'lumberMill', 'farm'];
     const territory = this.state.ownedTerritoryTiles(this.me);
 
     for (const type of priority) {
-      const def = BUILDINGS[type];
-      if (player.gold < def.goldCost || player.food < def.foodCost) continue;
       const countOfType = this.state.buildingsOf(this.me).filter((b) => b.type === type).length;
       if (type === 'farm' && countOfType >= 2) continue;
-      if (type === 'barracks' && countOfType >= 1) continue;
+      if (type === 'lumberMill' && countOfType >= 1) continue;
 
       const spot = territory.find(
         (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes(type)
       );
-      if (spot) {
-        this.state.issueBuild(this.me, spot, type);
-        return;
-      }
+      if (spot && this.state.issueBuild(this.me, spot, type).ok) return;
     }
   }
 
   private maybeTrain() {
     const barracks = this.state.buildingsOf(this.me).find((b) => b.type === 'barracks' && b.state === 'active' && !b.training);
     if (!barracks) return;
-    const player = this.state.players[this.me];
-    const def = TROOPS.swordsman;
-    if (player.gold >= def.goldCost && player.food >= def.foodCost) {
-      this.state.issueTrain(this.me, barracks.id, 'swordsman');
-    }
+    const hasWood = this.state.buildingsOf(this.me).some((b) => b.type === 'lumberMill' && b.state === 'active');
+    const type = hasWood && TROOPS.archer.requiresWoodProduction ? 'archer' : 'militia';
+    this.state.issueTrain(this.me, barracks.id, type);
   }
 
   private maybeAttack() {
