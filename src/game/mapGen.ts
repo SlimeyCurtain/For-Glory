@@ -256,15 +256,19 @@ function ensureConnectivity(fullTerrain: Map<string, TerrainType>, from: Offset,
 export function generateMap(seed: number = Math.floor(Math.random() * 2 ** 31)): GeneratedMap {
   const rng = mulberry32(seed);
 
-  // Castles sit a fixed distance in from their side's edge, but roll a random
-  // row (kept at least CASTLE_ROW_MARGIN from the top/bottom) so the map
-  // isn't the same shape every match. Both castles share that row so the
-  // map stays fair and symmetric.
-  const castleRow = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
-  const p1Castle: Offset = { col: CASTLE_COL, row: castleRow };
-  const p2Castle: Offset = { col: MAP_COLS - 1 - CASTLE_COL, row: castleRow };
+  // Castles sit a fixed distance in from their side's edge, but each rolls
+  // its own random row (kept at least CASTLE_ROW_MARGIN from the top/bottom)
+  // so the two sides don't always spawn parallel to each other. Each side's
+  // terrain is generated independently around its own castle rather than
+  // mirrored, since a mirrored layout would no longer line up once the rows
+  // can differ.
+  const p1Row = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
+  const p2Row = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
+  const p1Castle: Offset = { col: CASTLE_COL, row: p1Row };
+  const p2Castle: Offset = { col: MAP_COLS - 1 - CASTLE_COL, row: p2Row };
 
-  const p1Half = generateHalf(rng, p1Castle);
+  const p1Half = generateHalf(rng, { col: CASTLE_COL, row: p1Row });
+  const p2Half = generateHalf(rng, { col: CASTLE_COL, row: p2Row });
 
   const full = new Map<string, TerrainType>();
   for (let row = 0; row < MAP_ROWS; row++) {
@@ -273,8 +277,8 @@ export function generateMap(seed: number = Math.floor(Math.random() * 2 ** 31)):
       if (col < HALF_WIDTH) {
         full.set(key(o), p1Half.get(key(o)) ?? 'plains');
       } else {
-        const mirrored = { col: MAP_COLS - 1 - col, row };
-        full.set(key(o), p1Half.get(key(mirrored)) ?? 'plains');
+        const relative = { col: MAP_COLS - 1 - col, row };
+        full.set(key(o), p2Half.get(key(relative)) ?? 'plains');
       }
     }
   }
