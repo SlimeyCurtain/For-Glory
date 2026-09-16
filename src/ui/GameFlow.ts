@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import { MAP_COLS } from '../game/mapGen';
 import type { GameState } from '../game/GameState';
 import type { MainScene } from '../scenes/MainScene';
-import { playFanfare } from './sound';
+import { playDefeatHorn, playFanfare } from './sound';
 
 const FADE_MS = 600;
 const TIMER_FLY_MS = 900;
@@ -189,7 +189,8 @@ export class GameFlow {
     } else {
       const winnerEl = state.winner === leftPlayerId ? leftEl : rightEl;
       winnerEl.classList.add('gold');
-      playFanfare();
+      if (state.winner === 1) playFanfare();
+      else playDefeatHorn();
       const sideWord = state.winner === 1 ? 'BLUE' : 'RED';
       this.victoryText.textContent = `${sideWord} SETTLEMENT HAS WON THE GAME!`;
       this.victoryText.classList.add(state.winner === 1 ? 'blue' : 'red');
