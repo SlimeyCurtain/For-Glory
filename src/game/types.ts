@@ -32,6 +32,12 @@ export interface Building {
   training: Training | null;
   repairing: boolean;
   pillagedBy: string | null; // troop id currently pillaging this building
+  /** Farm-only: this instance's food income, which depends on whether it was built next to water. */
+  foodPerTick?: number;
+  foodTickIntervalMs?: number;
+  foodTickAccumMs?: number;
+  /** Castle-only: cooldown remaining before its next ranged shot. */
+  attackCooldownMs?: number;
 }
 
 export type TroopOrder =

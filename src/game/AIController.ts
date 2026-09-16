@@ -1,4 +1,5 @@
-import { ownerOfCol } from './mapGen';
+import { BUILDINGS, TROOPS } from './balance';
+import type { BuildingType } from './balance';
 import { GameState } from './GameState';
 import type { PlayerId } from './types';
 
@@ -29,28 +30,21 @@ export class AIController {
     this.maybeRepair();
   }
 
-  private myTiles(): { col: number; row: number }[] {
-    const tiles: { col: number; row: number }[] = [];
-    for (const t of this.state.tiles.values()) {
-      if (ownerOfCol(t.offset.col) === this.me) tiles.push(t.offset);
-    }
-    return tiles;
-  }
-
   private maybeBuild() {
     const player = this.state.players[this.me];
-    const options = this.state.availableBuildingsFor(this.me);
-    // prefer barracks once unlocked and affordable, otherwise farm
-    const priority = options.includes('barracks') ? ['barracks', 'farm'] as const : ['farm'] as const;
+    const priority: BuildingType[] = ['barracks', 'farm'];
+    const territory = this.state.ownedTerritoryTiles(this.me);
 
     for (const type of priority) {
-      const cost = type === 'farm' ? 50 : 90;
-      if (player.gold < cost) continue;
-      const farmCount = this.state.buildingsOf(this.me).filter((b) => b.type === type).length;
-      if (type === 'farm' && farmCount >= 2) continue;
-      if (type === 'barracks' && farmCount >= 1) continue;
+      const def = BUILDINGS[type];
+      if (player.gold < def.goldCost || player.food < def.foodCost) continue;
+      const countOfType = this.state.buildingsOf(this.me).filter((b) => b.type === type).length;
+      if (type === 'farm' && countOfType >= 2) continue;
+      if (type === 'barracks' && countOfType >= 1) continue;
 
-      const spot = this.myTiles().find((tile) => this.state.canBuildAt(this.me, tile).ok);
+      const spot = territory.find(
+        (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes(type)
+      );
       if (spot) {
         this.state.issueBuild(this.me, spot, type);
         return;
@@ -62,7 +56,8 @@ export class AIController {
     const barracks = this.state.buildingsOf(this.me).find((b) => b.type === 'barracks' && b.state === 'active' && !b.training);
     if (!barracks) return;
     const player = this.state.players[this.me];
-    if (player.gold >= 25 && player.food >= 15) {
+    const def = TROOPS.swordsman;
+    if (player.gold >= def.goldCost && player.food >= def.foodCost) {
       this.state.issueTrain(this.me, barracks.id, 'swordsman');
     }
   }

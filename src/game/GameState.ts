@@ -2,6 +2,8 @@ import {
   BASE_GOLD_PER_TICK,
   BUILDINGS,
   BUILDING_DAMAGE_PER_SEC,
+  CASTLE_ATTACK,
+  FARM_INCOME,
   INCOME_TICK_MS,
   MATCH_DURATION_MS,
   PILLAGE_PER_SEC,
@@ -12,10 +14,10 @@ import {
   TERRAIN,
   TROOPS,
 } from './balance';
-import type { BuildingType, TroopType } from './balance';
+import type { BuildingType, TerrainType, TroopType } from './balance';
 import { key, neighborsOf, hexDistance } from './hex';
 import type { Offset } from './hex';
-import { generateMap, ownerOfCol, P1_CASTLE, P2_CASTLE } from './mapGen';
+import { generateMap } from './mapGen';
 import type { TileMap } from './mapGen';
 import { findPath, tileCrossMs } from './pathfinding';
 import type { Building, PlayerId, PlayerState, ScoreEvent, Training, Troop, TroopOrder } from './types';
@@ -36,11 +38,14 @@ export class GameState {
   winner: PlayerId | 0 | null = null;
   gameOverReason: GameOverReason = null;
   pendingScoreEvents: ScoreEvent[] = [];
+  /** Castle shots fired this frame, for the scene to render a quick visual and then discard. */
+  pendingCastleShots: { from: Offset; to: Offset }[] = [];
 
   constructor() {
-    this.tiles = generateMap();
-    const castle1 = this.spawnBuilding(1, 'castle', P1_CASTLE, true);
-    const castle2 = this.spawnBuilding(2, 'castle', P2_CASTLE, true);
+    const map = generateMap();
+    this.tiles = map.tiles;
+    const castle1 = this.spawnBuilding(1, 'castle', map.p1Castle, true);
+    const castle2 = this.spawnBuilding(2, 'castle', map.p2Castle, true);
     this.players = {
       1: { id: 1, gold: STARTING_GOLD, food: STARTING_FOOD, score: 0, castleId: castle1.id },
       2: { id: 2, gold: STARTING_GOLD, food: STARTING_FOOD, score: 0, castleId: castle2.id },
@@ -61,6 +66,10 @@ export class GameState {
     return [...this.troops.values()].filter((t) => t.ownerId === owner);
   }
 
+  terrainAt(tile: Offset): TerrainType | null {
+    return this.tiles.get(key(tile))?.terrain ?? null;
+  }
+
   tileOccupiedByBuilding(o: Offset): Building | null {
     for (const b of this.buildings.values()) {
       if (b.state === 'destroyed') continue;
@@ -69,21 +78,42 @@ export class GameState {
     return null;
   }
 
+  /** A tile is a player's territory once they own a building on it, or on any neighboring tile. */
+  isOwnedTerritory(owner: PlayerId, tile: Offset): boolean {
+    const ownsTile = (o: Offset) => this.tileOccupiedByBuilding(o)?.ownerId === owner;
+    return ownsTile(tile) || neighborsOf(tile).some(ownsTile);
+  }
+
+  /** All tiles currently inside a player's territory -- used by the build-menu UI and the AI. */
+  ownedTerritoryTiles(owner: PlayerId): Offset[] {
+    const result = new Map<string, Offset>();
+    for (const b of this.buildingsOf(owner)) {
+      result.set(key(b.tile), b.tile);
+      for (const n of neighborsOf(b.tile)) result.set(key(n), n);
+    }
+    return [...result.values()];
+  }
+
   canBuildAt(owner: PlayerId, tile: Offset): { ok: boolean; reason?: string } {
-    if (ownerOfCol(tile.col) !== owner) return { ok: false, reason: 'Outside your territory' };
     const t = this.tiles.get(key(tile));
     if (!t) return { ok: false, reason: 'Invalid tile' };
     if (t.terrain === 'mountains' || t.terrain === 'river')
       return { ok: false, reason: 'Cannot build on this terrain' };
     if (this.tileOccupiedByBuilding(tile)) return { ok: false, reason: 'Tile occupied' };
+    if (!this.isOwnedTerritory(owner, tile)) return { ok: false, reason: 'Outside your territory' };
     return { ok: true };
   }
 
-  availableBuildingsFor(owner: PlayerId): BuildingType[] {
-    const opts: BuildingType[] = ['farm'];
+  /** Building types buildable on this specific tile: unlocked for the player, and terrain-compatible. */
+  availableBuildingsFor(owner: PlayerId, tile: Offset): BuildingType[] {
+    const t = this.tiles.get(key(tile));
+    if (!t) return [];
     const hasFarm = this.buildingsOf(owner).some((b) => b.type === 'farm' && b.state === 'active');
-    if (hasFarm) opts.push('barracks');
-    return opts;
+    const candidates: BuildingType[] = hasFarm ? ['farm', 'barracks'] : ['farm'];
+    return candidates.filter((type) => {
+      const allowed = BUILDINGS[type].allowedTerrain;
+      return !allowed || allowed.includes(t.terrain);
+    });
   }
 
   attackableBuildings(attacker: PlayerId): Building[] {
@@ -109,7 +139,8 @@ export class GameState {
   issueBuild(owner: PlayerId, tile: Offset, type: BuildingType): { ok: boolean; reason?: string } {
     const check = this.canBuildAt(owner, tile);
     if (!check.ok) return check;
-    if (!this.availableBuildingsFor(owner).includes(type)) return { ok: false, reason: 'Locked' };
+    if (!this.availableBuildingsFor(owner, tile).includes(type))
+      return { ok: false, reason: 'Cannot build that here' };
     const def = BUILDINGS[type];
     const player = this.players[owner];
     if (player.gold < def.goldCost || player.food < def.foodCost)
@@ -266,6 +297,16 @@ export class GameState {
       repairing: false,
       pillagedBy: null,
     };
+    if (type === 'farm') {
+      const nearWater = neighborsOf(tile).some((n) => this.tiles.get(key(n))?.terrain === 'river');
+      const rate = nearWater ? FARM_INCOME.waterAdjacent : FARM_INCOME.base;
+      b.foodPerTick = rate.amount;
+      b.foodTickIntervalMs = rate.intervalMs;
+      b.foodTickAccumMs = 0;
+    }
+    if (type === 'castle') {
+      b.attackCooldownMs = 0;
+    }
     this.buildings.set(b.id, b);
     return b;
   }
@@ -328,21 +369,41 @@ export class GameState {
     this.tickPillage(dtMs);
     this.tickHealing(dtMs);
     this.tickCombat(dtMs);
+    this.tickCastleDefense(dtMs);
     this.checkWinConditions();
   }
 
   private tickIncome(dtMs: number) {
+    // Base gold plus upkeep (barracks maintenance, swordsman wages) all resolve
+    // together on the shared 5s tick.
     this.incomeAccumMs += dtMs;
     while (this.incomeAccumMs >= INCOME_TICK_MS) {
       this.incomeAccumMs -= INCOME_TICK_MS;
-      for (const p of Object.values(this.players)) {
-        p.gold += BASE_GOLD_PER_TICK;
+      for (const player of Object.values(this.players)) {
+        let gold = BASE_GOLD_PER_TICK;
+        let food = 0;
+        for (const b of this.buildingsOf(player.id)) {
+          if (b.state !== 'active') continue;
+          gold += BUILDINGS[b.type].goldUpkeepPer5s ?? 0;
+        }
+        for (const t of this.troopsOf(player.id)) {
+          gold += TROOPS[t.type].goldUpkeepPer5s;
+          food += TROOPS[t.type].foodUpkeepPer5s;
+        }
+        player.gold = Math.max(0, player.gold + gold);
+        player.food = Math.max(0, player.food + food);
       }
-      for (const b of this.buildings.values()) {
-        if (b.state !== 'active') continue;
-        const def = BUILDINGS[b.type];
-        if (def.incomeFoodPer5s) this.players[b.ownerId].food += def.incomeFoodPer5s;
-        if (def.incomeGoldPer5s) this.players[b.ownerId].gold += def.incomeGoldPer5s;
+    }
+
+    // Each farm generates food on its own schedule, since a water-adjacent
+    // farm ticks faster than the shared 5s cadence.
+    for (const b of this.buildings.values()) {
+      if (b.type !== 'farm' || b.state !== 'active' || b.foodPerTick == null) continue;
+      const interval = b.foodTickIntervalMs ?? INCOME_TICK_MS;
+      b.foodTickAccumMs = (b.foodTickAccumMs ?? 0) + dtMs;
+      while (b.foodTickAccumMs >= interval) {
+        b.foodTickAccumMs -= interval;
+        this.players[b.ownerId].food += b.foodPerTick;
       }
     }
   }
@@ -356,7 +417,13 @@ export class GameState {
       if (b.buildRemainingMs <= 0) {
         b.state = 'active';
         b.hp = b.maxHp;
-        this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
+        // Only the first standing building of a type scores -- extra copies
+        // while one is already up don't, but replacing one that was fully
+        // destroyed does (no other active one exists at that moment either).
+        const hasOtherActive = [...this.buildings.values()].some(
+          (other) => other.id !== b.id && other.ownerId === b.ownerId && other.type === b.type && other.state === 'active'
+        );
+        if (!hasOtherActive) this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
       }
     }
   }
@@ -465,6 +532,8 @@ export class GameState {
 
   private tickPillage(dtMs: number) {
     for (const b of this.buildings.values()) b.pillagedBy = null;
+    const dtSec = dtMs / 1000;
+
     for (const troop of this.troops.values()) {
       if (troop.order.kind !== 'pillaging') continue;
       const b = this.buildings.get(troop.order.targetBuildingId);
@@ -473,14 +542,30 @@ export class GameState {
         continue;
       }
       b.pillagedBy = troop.id;
-      const dtSec = dtMs / 1000;
       b.hp = Math.max(0, b.hp - BUILDING_DAMAGE_PER_SEC * dtSec);
       this.players[troop.ownerId].gold += PILLAGE_PER_SEC.gold * dtSec;
       this.players[troop.ownerId].food += PILLAGE_PER_SEC.food * dtSec;
+
+      // Some buildings shoot back -- flat damage that ignores the attacker's defense.
+      const counter = BUILDINGS[b.type].counterDamage;
+      if (counter && !TROOPS[troop.type].isSiege) {
+        troop.hp -= counter * dtSec;
+      }
+
       if (b.hp <= 0) {
         b.state = 'destroyed';
         troop.order = { kind: 'idle' };
         this.awardScore(troop.ownerId, SCORE.buildingDestroyed, 'building');
+      }
+    }
+
+    // A troop killed by a building's counterattack (the building itself
+    // survived this tick) credits the defender, same as any other kill.
+    for (const troop of [...this.troops.values()]) {
+      if (troop.hp <= 0 && troop.order.kind === 'pillaging') {
+        const b = this.buildings.get(troop.order.targetBuildingId);
+        this.troops.delete(troop.id);
+        if (b) this.awardScore(b.ownerId, SCORE.unitDestroyed, 'unit');
       }
     }
   }
@@ -543,6 +628,31 @@ export class GameState {
             if (foe.hp > 0) foe.order = { kind: 'idle' };
           }
         }
+      }
+    }
+  }
+
+  private tickCastleDefense(dtMs: number) {
+    this.pendingCastleShots = [];
+    for (const castle of this.buildings.values()) {
+      if (castle.type !== 'castle' || castle.state === 'destroyed') continue;
+      castle.attackCooldownMs = Math.max(0, (castle.attackCooldownMs ?? 0) - dtMs);
+      if (castle.attackCooldownMs > 0) continue;
+
+      const targets = this.troopsOf(this.opponentOf(castle.ownerId)).filter(
+        (t) => hexDistance(t.tile, castle.tile) <= CASTLE_ATTACK.range
+      );
+      if (targets.length === 0) continue;
+      targets.sort((a, b) => hexDistance(a.tile, castle.tile) - hexDistance(b.tile, castle.tile));
+      const target = targets[0];
+
+      target.hp -= CASTLE_ATTACK.damage; // ignores defense entirely -- an archer volley, not a melee trade
+      castle.attackCooldownMs = CASTLE_ATTACK.cooldownMs;
+      this.pendingCastleShots.push({ from: castle.tile, to: target.tile });
+
+      if (target.hp <= 0) {
+        this.troops.delete(target.id);
+        this.awardScore(castle.ownerId, SCORE.unitDestroyed, 'unit');
       }
     }
   }

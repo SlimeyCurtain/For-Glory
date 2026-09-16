@@ -1,5 +1,5 @@
-import { BUILDINGS, MATCH_DURATION_MS, TROOPS } from '../game/balance';
-import type { BuildingType } from '../game/balance';
+import { BUILDINGS, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
+import type { BuildingType, TerrainType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
 import type { Offset } from '../game/hex';
@@ -26,7 +26,7 @@ export class UIController {
   private selectedTile: Offset | null = null;
   private selectedTroopId: string | null = null;
   private selectedBuildingId: string | null = null;
-  private mode: 'none' | 'build' | 'buildingInfo' | 'troop' | 'pathTrace' | 'interceptList' = 'none';
+  private mode: 'none' | 'tileInfo' | 'build' | 'buildingInfo' | 'troop' | 'pathTrace' | 'interceptList' = 'none';
 
   /** Path the player has traced by hand for the selected troop, and the enemy
    * building (if any) it currently ends next to. */
@@ -79,19 +79,14 @@ export class UIController {
       this.handlePathTraceTile(tile);
       return;
     }
-    const check = this.state.canBuildAt(HUMAN, tile);
     const existing = this.state.tileOccupiedByBuilding(tile);
     if (existing && existing.ownerId === HUMAN) {
       this.onBuildingClick(existing);
       return;
     }
-    if (!check.ok) {
-      this.flashBanner(check.reason ?? "Can't build there");
-      return;
-    }
     this.selectedTile = tile;
-    this.mode = 'build';
-    this.renderBuildMenu();
+    this.mode = 'tileInfo';
+    this.renderTileInfo();
   }
 
   onBuildingClick(building: Building) {
@@ -99,7 +94,14 @@ export class UIController {
       this.handlePathTraceBuilding(building);
       return;
     }
-    if (building.ownerId !== HUMAN) return; // enemy buildings are only targeted by tracing a path to them
+    if (building.ownerId !== HUMAN) {
+      // enemy buildings are only targeted by tracing a path to them; a plain
+      // tap just shows what's known about that tile, same as empty terrain
+      this.selectedTile = building.tile;
+      this.mode = 'tileInfo';
+      this.renderTileInfo();
+      return;
+    }
     this.selectedBuildingId = building.id;
     this.mode = 'buildingInfo';
     this.renderBuildingInfo();
@@ -145,6 +147,7 @@ export class UIController {
     if (signature === this.lastLiveSignature) return;
     this.lastLiveSignature = signature;
 
+    if (this.mode === 'tileInfo') this.renderTileInfo();
     if (this.mode === 'buildingInfo') this.renderBuildingInfo();
     if (this.mode === 'interceptList') this.renderInterceptList();
     if (this.mode === 'troop') this.renderTroopMenu();
@@ -160,6 +163,8 @@ export class UIController {
     const t = this.selectedTroopId ? this.state.troops.get(this.selectedTroopId) : null;
     const threats = this.mode === 'troop' || this.mode === 'pathTrace' ? this.state.incomingThreatsFor(HUMAN).length : 0;
     const player = this.state.players[HUMAN];
+    const tileOwner = this.selectedTile ? this.state.tileOccupiedByBuilding(this.selectedTile)?.ownerId ?? null : null;
+    const tileIsYours = this.selectedTile ? this.state.isOwnedTerritory(HUMAN, this.selectedTile) : null;
     return JSON.stringify([
       this.mode,
       this.tracedPath.length,
@@ -171,6 +176,8 @@ export class UIController {
       t ? Math.ceil(t.hp) : null,
       t?.order.kind,
       threats,
+      tileOwner,
+      tileIsYours,
       Math.floor(player.gold),
       Math.floor(player.food),
     ]);
@@ -317,11 +324,65 @@ export class UIController {
 
   // ---------- panels ----------
 
+  private renderTileInfo() {
+    if (!this.selectedTile) return;
+    const tile = this.selectedTile;
+    const terrain = this.state.terrainAt(tile);
+    if (!terrain) {
+      this.closePanel();
+      return;
+    }
+    const def = TERRAIN[terrain];
+    const existingBuilding = this.state.tileOccupiedByBuilding(tile);
+
+    let territoryLabel: 'Yours' | 'Enemy' | 'Unoccupied';
+    if (existingBuilding) {
+      territoryLabel = existingBuilding.ownerId === HUMAN ? 'Yours' : 'Enemy';
+    } else if (this.state.isOwnedTerritory(HUMAN, tile)) {
+      territoryLabel = 'Yours';
+    } else if (this.state.isOwnedTerritory(this.state.opponentOf(HUMAN), tile)) {
+      territoryLabel = 'Enemy';
+    } else {
+      territoryLabel = 'Unoccupied';
+    }
+
+    this.openPanel(terrainName(terrain));
+    this.el.panelBody.innerHTML = '';
+
+    const effect = document.createElement('p');
+    effect.className = 'hint';
+    effect.textContent = def.effectText;
+    this.el.panelBody.appendChild(effect);
+
+    const territory = document.createElement('p');
+    territory.className = 'hint';
+    territory.textContent = `Territory: ${territoryLabel}`;
+    this.el.panelBody.appendChild(territory);
+
+    if (existingBuilding) {
+      const b = document.createElement('p');
+      b.className = 'hint';
+      b.textContent = `${labelName(existingBuilding)} — ${Math.ceil(existingBuilding.hp)}/${existingBuilding.maxHp} HP`;
+      this.el.panelBody.appendChild(b);
+    }
+
+    if (territoryLabel === 'Yours' && !existingBuilding) {
+      const buildBtn = document.createElement('button');
+      buildBtn.className = 'action-btn';
+      buildBtn.textContent = 'Build';
+      buildBtn.addEventListener('click', () => {
+        this.mode = 'build';
+        this.renderBuildMenu();
+      });
+      this.el.panelBody.appendChild(buildBtn);
+    }
+  }
+
   private renderBuildMenu() {
     if (!this.selectedTile) return;
     this.openPanel('Build');
     const tile = this.selectedTile;
-    const options = this.state.availableBuildingsFor(HUMAN);
+    const options = this.state.availableBuildingsFor(HUMAN, tile);
     this.el.panelBody.innerHTML = '';
     for (const type of options) {
       const def = BUILDINGS[type as BuildingType];
@@ -339,8 +400,19 @@ export class UIController {
       this.el.panelBody.appendChild(btn);
     }
     if (options.length === 0) {
-      this.el.panelBody.innerHTML = '<p>Nothing available to build yet.</p>';
+      const p = document.createElement('p');
+      p.className = 'hint';
+      p.textContent = 'Nothing buildable on this terrain yet.';
+      this.el.panelBody.appendChild(p);
     }
+    const backBtn = document.createElement('button');
+    backBtn.className = 'action-btn secondary';
+    backBtn.textContent = 'Back';
+    backBtn.addEventListener('click', () => {
+      this.mode = 'tileInfo';
+      this.renderTileInfo();
+    });
+    this.el.panelBody.appendChild(backBtn);
   }
 
   private renderBuildingInfo() {
@@ -509,6 +581,23 @@ export class UIController {
 
 function labelName(b: Building): string {
   return BUILDINGS[b.type].name;
+}
+
+function terrainName(t: TerrainType): string {
+  switch (t) {
+    case 'plains':
+      return 'Plains';
+    case 'forest':
+      return 'Forest';
+    case 'hills':
+      return 'Hills';
+    case 'mountains':
+      return 'Mountains';
+    case 'river':
+      return 'River / Lake';
+    case 'castleGround':
+      return 'Castle Grounds';
+  }
 }
 
 function orderLabel(t: Troop): string {
