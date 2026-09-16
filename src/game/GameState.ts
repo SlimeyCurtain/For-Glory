@@ -2,7 +2,6 @@ import {
   BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS,
   BASE_GOLD_PER_TICK,
   BUILDINGS,
-  BUILDING_DAMAGE_PER_SEC,
   CASTLE_ATTACK,
   FARM_FOOD,
   FARM_STRAW,
@@ -13,14 +12,13 @@ import {
   HOUSE_HILLS_ENEMY_DEBUFF_MULT,
   HOUSE_MOUNTAIN_BONUS_GOLD,
   HOUSE_MOUNTAIN_BONUS_STONE_UPKEEP,
+  INSOLVENCY_DAMAGE_PER_TICK,
   LUMBER_MILL_WOOD_INTERVAL_MS,
   LUMBER_MILL_WOOD_PER_FOREST,
   MATCH_DURATION_MS,
   MIN_BUILD_TIME_MS,
-  PILLAGE_PER_SEC,
   QUARRY_STONE_INTERVAL_MS,
   QUARRY_STONE_PER_MOUNTAIN,
-  REBUILD_TIME_DISCOUNT_MS,
   REPAIR_HP_PER_SEC,
   RESOURCE_TICK_MS,
   SCORE,
@@ -46,6 +44,14 @@ const genId = (prefix: string) => `${prefix}${nextId++}`;
 
 export type GameOverReason = 'castle' | 'time' | null;
 
+/** Granted when a building is destroyed; consumed by the next build of that type for that owner. */
+interface RebuildCredit {
+  ownerId: PlayerId;
+  type: BuildingType;
+  cost: Partial<Record<ResourceKey, number>>;
+  buildTimeMs: number;
+}
+
 export class GameState {
   tiles: TileMap;
   players: Record<PlayerId, PlayerState>;
@@ -53,6 +59,7 @@ export class GameState {
   troops: Map<string, Troop> = new Map();
   matchElapsedMs = 0;
   private resourceAccumMs: Record<ResourceKey, number> = { gold: 0, food: 0, straw: 0, wood: 0, stone: 0 };
+  private rebuildCredits: RebuildCredit[] = [];
   gameOver = false;
   winner: PlayerId | 0 | null = null;
   gameOverReason: GameOverReason = null;
@@ -63,8 +70,8 @@ export class GameState {
   constructor() {
     const map = generateMap();
     this.tiles = map.tiles;
-    const castle1 = this.spawnBuilding(1, 'castle', map.p1Castle, true);
-    const castle2 = this.spawnBuilding(2, 'castle', map.p2Castle, true);
+    const castle1 = this.spawnBuilding(1, 'castle', map.p1Castle, true, undefined, {});
+    const castle2 = this.spawnBuilding(2, 'castle', map.p2Castle, true, undefined, {});
     const base = { gold: STARTING_GOLD, food: STARTING_FOOD, straw: STARTING_STRAW, wood: STARTING_WOOD, stone: STARTING_STONE };
     this.players = {
       1: { id: 1, ...base, score: 0, castleId: castle1.id },
@@ -150,8 +157,15 @@ export class GameState {
     });
   }
 
-  /** Full resource cost for this player's next instance of `type` (farms escalate; UI shows this instead of the static def cost). */
+  /**
+   * Full resource cost for this player's next instance of `type`. A pending
+   * rebuild credit (half of whatever a just-destroyed instance of this type
+   * actually cost) always takes priority over the normal price -- including
+   * the farm's escalating gold cost, which the credit deliberately bypasses.
+   */
   previewBuildCost(owner: PlayerId, type: BuildingType): Partial<Record<ResourceKey, number>> {
+    const credit = this.rebuildCredits.find((c) => c.ownerId === owner && c.type === type);
+    if (credit) return credit.cost;
     const def = BUILDINGS[type];
     const cost: Partial<Record<ResourceKey, number>> = { gold: this.goldCostFor(owner, type) };
     if (def.foodCost) cost.food = def.foodCost;
@@ -218,31 +232,21 @@ export class GameState {
     if (!check.ok) return check;
     if (!this.availableBuildingsFor(owner, tile).includes(type))
       return { ok: false, reason: 'Cannot build that here' };
-    const def = BUILDINGS[type];
     const player = this.players[owner];
-    const goldCost = this.goldCostFor(owner, type);
-    const foodCost = def.foodCost;
-    const strawCost = def.strawCost ?? 0;
-    const woodCost = def.woodCost ?? 0;
-    const stoneCost = def.stoneCost ?? 0;
-    if (
-      player.gold < goldCost ||
-      player.food < foodCost ||
-      player.straw < strawCost ||
-      player.wood < woodCost ||
-      player.stone < stoneCost
-    )
-      return { ok: false, reason: 'Not enough resources' };
-    player.gold -= goldCost;
-    player.food -= foodCost;
-    player.straw -= strawCost;
-    player.wood -= woodCost;
-    player.stone -= stoneCost;
-    this.spawnBuilding(owner, type, tile, false, this.buildTimeFor(owner, type));
+    const credit = this.takeRebuildCredit(owner, type);
+    const cost = credit ? credit.cost : this.previewBuildCost(owner, type);
+    const buildTimeMs = credit ? credit.buildTimeMs : BUILDINGS[type].buildTimeMs;
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      if (player[resource] < (cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
+    }
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      player[resource] -= cost[resource] ?? 0;
+    }
+    this.spawnBuilding(owner, type, tile, false, buildTimeMs, cost, !!credit);
     return { ok: true };
   }
 
-  /** Gold cost for the next instance of `type` this player builds (farms escalate; everything else is flat). */
+  /** Gold cost for the next fresh (non-credit) instance of `type` (farms escalate; everything else is flat). */
   private goldCostFor(owner: PlayerId, type: BuildingType): number {
     const def = BUILDINGS[type];
     if (!def.goldCostForNth) return def.goldCost;
@@ -250,12 +254,38 @@ export class GameState {
     return def.goldCostForNth(everBuilt + 1);
   }
 
-  /** Rebuilding a type of which every prior instance was destroyed is faster than building it fresh. */
-  private buildTimeFor(owner: PlayerId, type: BuildingType): number {
-    const priors = [...this.buildings.values()].filter((b) => b.ownerId === owner && b.type === type);
-    const isRebuild = priors.length > 0 && priors.every((b) => b.state === 'destroyed');
-    const base = BUILDINGS[type].buildTimeMs;
-    return isRebuild ? Math.max(MIN_BUILD_TIME_MS, base - REBUILD_TIME_DISCOUNT_MS) : base;
+  /** Pops (consumes) a pending rebuild credit for this owner+type, if one exists. */
+  private takeRebuildCredit(owner: PlayerId, type: BuildingType): RebuildCredit | null {
+    const idx = this.rebuildCredits.findIndex((c) => c.ownerId === owner && c.type === type);
+    if (idx === -1) return null;
+    return this.rebuildCredits.splice(idx, 1)[0];
+  }
+
+  /**
+   * Any destroyed building (not just ones capped at one-at-a-time) grants a
+   * standing credit good for half of whatever that specific instance
+   * actually cost and how long it actually took -- the next build of that
+   * type consumes it instead of paying full/fresh price.
+   */
+  private grantRebuildCredit(b: Building) {
+    if (b.type === 'castle') return; // castles are never rebuilt
+    const halvedCost: Partial<Record<ResourceKey, number>> = {};
+    for (const resource of Object.keys(b.paidCost) as ResourceKey[]) {
+      halvedCost[resource] = Math.ceil((b.paidCost[resource] ?? 0) / 2);
+    }
+    this.rebuildCredits.push({
+      ownerId: b.ownerId,
+      type: b.type,
+      cost: halvedCost,
+      buildTimeMs: Math.max(MIN_BUILD_TIME_MS, Math.round(b.paidBuildTimeMs / 2)),
+    });
+  }
+
+  /** Marks a building destroyed and grants its owner a rebuild credit for it -- the single place any building dies. */
+  private destroyBuilding(b: Building) {
+    if (b.state === 'destroyed') return;
+    b.state = 'destroyed';
+    this.grantRebuildCredit(b);
   }
 
   issueRepair(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
@@ -308,6 +338,8 @@ export class GameState {
     if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
     if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
     if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
+    if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
+      return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
 
     const dest = this.bestApproachTile(troop.tile, target.tile, troop);
     if (!dest) return { ok: false, reason: 'No path available' };
@@ -376,6 +408,8 @@ export class GameState {
       if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
       if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
       if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
+      if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
+        return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
       if (hexDistance(path[path.length - 1], target.tile) !== 1)
         return { ok: false, reason: 'Path does not reach that building' };
     }
@@ -407,7 +441,15 @@ export class GameState {
 
   // ---------- internal helpers ----------
 
-  private spawnBuilding(owner: PlayerId, type: BuildingType, tile: Offset, instant: boolean, buildTimeMs?: number): Building {
+  private spawnBuilding(
+    owner: PlayerId,
+    type: BuildingType,
+    tile: Offset,
+    instant: boolean,
+    buildTimeMs?: number,
+    paidCost: Partial<Record<ResourceKey, number>> = {},
+    isRebuildCredit = false
+  ): Building {
     const def = BUILDINGS[type];
     const totalMs = buildTimeMs ?? def.buildTimeMs;
     const b: Building = {
@@ -424,6 +466,8 @@ export class GameState {
       repairing: false,
       pillagedBy: null,
       production: [],
+      paidCost,
+      paidBuildTimeMs: totalMs,
     };
 
     const mkFeed = (resource: ResourceKey, amount: number, intervalMs: number): ProductionFeed => ({
@@ -431,6 +475,7 @@ export class GameState {
       amount,
       intervalMs,
       accumMs: 0,
+      skipTicksRemaining: isRebuildCredit ? 3 : 0,
     });
     const neighborTerrains = () => neighborsOf(tile).map((n) => this.tiles.get(key(n))?.terrain);
 
@@ -570,29 +615,32 @@ export class GameState {
   /**
    * Each resource resolves its own upkeep on its own cadence (gold every 5s,
    * food/straw every 3s, wood every 8s, stone every 6s) -- base gold income
-   * lands here too. If a player can't cover this tick's draw even from
-   * their full reserve, consumers of that resource (troops first, then
-   * buildings) are destroyed one at a time until the shortfall clears.
+   * lands here too. Running a net deficit is fine on its own: it just draws
+   * the reserve down tick by tick, same as it would build up from a surplus.
+   * Only once the reserve can no longer cover a tick's full draw does it
+   * clamp to zero and start punishing -- every troop/building that consumes
+   * this specific resource takes flat HP damage, every tick, for as long as
+   * the shortfall persists.
    */
   private resolveUpkeepTick(resource: ResourceKey) {
     for (const player of Object.values(this.players)) {
       let delta = resource === 'gold' ? BASE_GOLD_PER_TICK : 0;
-      const buildingConsumers: { id: string; amount: number }[] = [];
-      const troopConsumers: { id: string; amount: number }[] = [];
+      const buildingConsumers: Building[] = [];
+      const troopConsumers: Troop[] = [];
 
       for (const b of this.buildingsOf(player.id)) {
         if (b.state !== 'active') continue;
         const amount = (BUILDINGS[b.type].upkeep?.[resource] ?? 0) + (b.extraUpkeep?.[resource] ?? 0);
         if (amount !== 0) {
           delta += amount;
-          buildingConsumers.push({ id: b.id, amount });
+          buildingConsumers.push(b);
         }
       }
       for (const t of this.troopsOf(player.id)) {
         const amount = TROOPS[t.type].upkeep[resource] ?? 0;
         if (amount !== 0) {
           delta += amount;
-          troopConsumers.push({ id: t.id, amount });
+          troopConsumers.push(t);
         }
       }
 
@@ -602,21 +650,17 @@ export class GameState {
         continue;
       }
 
-      let deficit = -newBalance;
-      for (const c of troopConsumers) {
-        if (deficit <= 0) break;
-        if (!this.troops.has(c.id)) continue;
-        this.troops.delete(c.id);
-        deficit += c.amount; // amount is negative, so this shrinks the deficit
-      }
-      for (const c of buildingConsumers) {
-        if (deficit <= 0) break;
-        const b = this.buildings.get(c.id);
-        if (!b || b.state === 'destroyed') continue;
-        b.state = 'destroyed';
-        deficit += c.amount;
-      }
       player[resource] = 0;
+      // Starvation isn't a kill by the opponent -- no score changes hands,
+      // just steady attrition until the player fixes their economy.
+      for (const t of troopConsumers) {
+        t.hp -= INSOLVENCY_DAMAGE_PER_TICK;
+        if (t.hp <= 0) this.troops.delete(t.id);
+      }
+      for (const b of buildingConsumers) {
+        b.hp -= INSOLVENCY_DAMAGE_PER_TICK;
+        if (b.hp <= 0) this.destroyBuilding(b);
+      }
     }
   }
 
@@ -627,6 +671,13 @@ export class GameState {
         feed.accumMs += dtMs;
         while (feed.accumMs >= feed.intervalMs) {
           feed.accumMs -= feed.intervalMs;
+          // A credit-rebuilt instance's first few completed ticks on each
+          // feed are the trade-off for its cheaper/faster reconstruction --
+          // the tick still happens, it just yields nothing.
+          if (feed.skipTicksRemaining > 0) {
+            feed.skipTicksRemaining--;
+            continue;
+          }
           let amount = feed.amount;
           if (b.type === 'farm' && feed.resource === 'food' && this.hasAdjacentActiveFishersHut(b)) {
             amount += FISHERS_HUT_FARM_FOOD_BONUS;
@@ -771,9 +822,13 @@ export class GameState {
         continue;
       }
       b.pillagedBy = troop.id;
-      b.hp = Math.max(0, b.hp - BUILDING_DAMAGE_PER_SEC * dtSec);
-      this.players[troop.ownerId].gold += PILLAGE_PER_SEC.gold * dtSec;
-      this.players[troop.ownerId].food += PILLAGE_PER_SEC.food * dtSec;
+
+      // issueAttackOrder/issueManualMove already refuse a target this troop's
+      // attack can't beat, so diff should always be positive here -- the
+      // guard just keeps a stray edge case from ever dealing negative damage.
+      const atk = troop.attack * this.terrainMultAt(troop.tile);
+      const diff = atk - BUILDINGS[b.type].defense;
+      if (diff > 0) b.hp -= diff * dtSec;
 
       // Some buildings shoot back -- flat damage that ignores the attacker's defense.
       const counter = BUILDINGS[b.type].counterDamage;
@@ -782,9 +837,10 @@ export class GameState {
       }
 
       if (b.hp <= 0) {
-        b.state = 'destroyed';
         troop.order = { kind: 'idle' };
         this.awardScore(troop.ownerId, SCORE.buildingDestroyed, 'building');
+        this.grantPillageBonus(troop.ownerId, b);
+        this.destroyBuilding(b);
       }
     }
 
@@ -796,6 +852,14 @@ export class GameState {
         this.troops.delete(troop.id);
         if (b) this.awardScore(b.ownerId, SCORE.unitDestroyed, 'unit');
       }
+    }
+  }
+
+  /** Successfully pillaging a building down grants a one-time copy of everything it was actively producing. */
+  private grantPillageBonus(attackerId: PlayerId, building: Building) {
+    const player = this.players[attackerId];
+    for (const feed of building.production) {
+      player[feed.resource] += feed.amount;
     }
   }
 
@@ -816,11 +880,27 @@ export class GameState {
     return true;
   }
 
-  private combatDamage(attacker: Troop, defender: Troop): number {
+  /**
+   * A strike's outcome is a straight attack-minus-defense diff: a positive
+   * result damages the defender, a negative one backfires onto the attacker
+   * instead (losing a fight you had no business picking), and zero does
+   * nothing to either side. Returns a kill record for whichever side's HP
+   * ran out, or null if neither did.
+   */
+  private resolveStrike(attacker: Troop, defender: Troop, dtSec: number): { victimId: string; killerOwnerId: PlayerId } | null {
     const atk = attacker.attack * this.terrainMultAt(attacker.tile);
-    let def = defender.defense * this.terrainMultAt(defender.tile);
-    if (defender.order.kind === 'defend') def *= 2; // Defend: double defense while immobile
-    return Math.max(2, atk - def * 0.5);
+    const defMult = defender.order.kind === 'defend' ? 2 : 1; // Defend: double defense while immobile
+    const def = defender.defense * this.terrainMultAt(defender.tile) * defMult;
+    const diff = atk - def;
+
+    if (diff > 0) {
+      defender.hp -= diff * dtSec;
+      if (defender.hp <= 0) return { victimId: defender.id, killerOwnerId: attacker.ownerId };
+    } else if (diff < 0) {
+      attacker.hp -= -diff * dtSec;
+      if (attacker.hp <= 0) return { victimId: attacker.id, killerOwnerId: defender.ownerId };
+    }
+    return null;
   }
 
   private tickCombat(dtMs: number) {
@@ -852,14 +932,12 @@ export class GameState {
         }
 
         if (aCan) {
-          const dmg = this.combatDamage(a, b);
-          b.hp -= dmg * dtSec;
-          if (b.hp <= 0) kills.push({ victimId: b.id, killerOwnerId: a.ownerId });
+          const k = this.resolveStrike(a, b, dtSec);
+          if (k) kills.push(k);
         }
         if (bCan) {
-          const dmg = this.combatDamage(b, a);
-          a.hp -= dmg * dtSec;
-          if (a.hp <= 0) kills.push({ victimId: a.id, killerOwnerId: b.ownerId });
+          const k = this.resolveStrike(b, a, dtSec);
+          if (k) kills.push(k);
         }
       }
     }

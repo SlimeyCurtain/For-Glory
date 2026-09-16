@@ -53,12 +53,18 @@ export class MainScene extends Phaser.Scene implements MapView {
   private state: GameState;
   private ai: AIController;
   private callbacks: SceneCallbacks;
+  /** While true, the sim clock is held still -- used during the intro countdown before "BEGIN". */
+  private frozen = true;
 
   constructor(state: GameState, ai: AIController, callbacks: SceneCallbacks) {
     super('main');
     this.state = state;
     this.ai = ai;
     this.callbacks = callbacks;
+  }
+
+  setFrozen(frozen: boolean) {
+    this.frozen = frozen;
   }
 
   create() {
@@ -104,7 +110,7 @@ export class MainScene extends Phaser.Scene implements MapView {
   }
 
   update(_time: number, delta: number) {
-    if (!this.state.gameOver) {
+    if (!this.state.gameOver && !this.frozen) {
       this.state.update(delta);
       this.ai.update(delta);
     }

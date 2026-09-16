@@ -256,41 +256,50 @@ function ensureConnectivity(fullTerrain: Map<string, TerrainType>, from: Offset,
 export function generateMap(seed: number = Math.floor(Math.random() * 2 ** 31)): GeneratedMap {
   const rng = mulberry32(seed);
 
-  // Castles sit a fixed distance in from their side's edge, but each rolls
-  // its own random row (kept at least CASTLE_ROW_MARGIN from the top/bottom)
-  // so the two sides don't always spawn parallel to each other. Each side's
-  // terrain is generated independently around its own castle rather than
-  // mirrored, since a mirrored layout would no longer line up once the rows
-  // can differ.
-  const p1Row = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
-  const p2Row = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
-  const p1Castle: Offset = { col: CASTLE_COL, row: p1Row };
-  const p2Castle: Offset = { col: MAP_COLS - 1 - CASTLE_COL, row: p2Row };
+  // Terrain generation only knows about a "left side" and "right side" of
+  // the map -- each rolls its own random row (kept at least
+  // CASTLE_ROW_MARGIN from the top/bottom) so the two sides don't always
+  // spawn parallel to each other, and each side's terrain is generated
+  // independently around its own castle rather than mirrored, since a
+  // mirrored layout would no longer line up once the rows can differ.
+  // Which *player* ends up on which side is decided separately below, so
+  // nobody is ever stuck permanently on the left.
+  const leftRow = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
+  const rightRow = randInt(rng, CASTLE_ROW_MARGIN, MAP_ROWS - 1 - CASTLE_ROW_MARGIN);
+  const leftCastle: Offset = { col: CASTLE_COL, row: leftRow };
+  const rightCastle: Offset = { col: MAP_COLS - 1 - CASTLE_COL, row: rightRow };
 
-  const p1Half = generateHalf(rng, { col: CASTLE_COL, row: p1Row });
-  const p2Half = generateHalf(rng, { col: CASTLE_COL, row: p2Row });
+  const leftHalf = generateHalf(rng, { col: CASTLE_COL, row: leftRow });
+  const rightHalf = generateHalf(rng, { col: CASTLE_COL, row: rightRow });
 
   const full = new Map<string, TerrainType>();
   for (let row = 0; row < MAP_ROWS; row++) {
     for (let col = 0; col < MAP_COLS; col++) {
       const o = { col, row };
       if (col < HALF_WIDTH) {
-        full.set(key(o), p1Half.get(key(o)) ?? 'plains');
+        full.set(key(o), leftHalf.get(key(o)) ?? 'plains');
       } else {
         const relative = { col: MAP_COLS - 1 - col, row };
-        full.set(key(o), p2Half.get(key(relative)) ?? 'plains');
+        full.set(key(o), rightHalf.get(key(relative)) ?? 'plains');
       }
     }
   }
-  full.set(key(p1Castle), 'castleGround');
-  full.set(key(p2Castle), 'castleGround');
+  full.set(key(leftCastle), 'castleGround');
+  full.set(key(rightCastle), 'castleGround');
 
-  ensureConnectivity(full, p1Castle, p2Castle);
+  ensureConnectivity(full, leftCastle, rightCastle);
 
   const tiles: TileMap = new Map();
   for (const [k, terrain] of full) {
     const [col, row] = k.split(',').map(Number);
     tiles.set(k, { offset: { col, row }, terrain });
   }
+
+  // A coin flip per match: player 1 has a 50/50 chance of landing on either
+  // side, with player 2 always taking whichever side is left over.
+  const p1OnLeft = rng() < 0.5;
+  const p1Castle = p1OnLeft ? leftCastle : rightCastle;
+  const p2Castle = p1OnLeft ? rightCastle : leftCastle;
+
   return { tiles, p1Castle, p2Castle };
 }

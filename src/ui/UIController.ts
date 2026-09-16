@@ -5,6 +5,7 @@ import { hexDistance } from '../game/hex';
 import type { Offset } from '../game/hex';
 import type { MapView } from '../scenes/MainScene';
 import type { Building, Troop } from '../game/types';
+import { shouldFlashTimer } from './GameFlow';
 
 const HUMAN = 1 as const;
 
@@ -40,8 +41,6 @@ export class UIController {
     panelTitle: HTMLElement;
     panelBody: HTMLElement;
     banner: HTMLElement;
-    gameOver: HTMLElement;
-    gameOverText: HTMLElement;
   };
 
   private selectedTile: Offset | null = null;
@@ -67,18 +66,15 @@ export class UIController {
           (r) =>
             `<div class="hud-group"><span class="hud-label">${r.label}</span><span id="hud-${r.key}" class="hud-value">0</span><span id="hud-${r.key}-rate" class="hud-rate"></span></div>`
         ).join('')}
-        <div class="hud-group hud-timer"><span id="hud-timer">5:00</span></div>
         <div class="hud-group"><span class="hud-label">You</span><span id="hud-score-you">0</span></div>
         <div class="hud-group"><span class="hud-label">Foe</span><span id="hud-score-opp">0</span></div>
+        <div class="hud-group hud-timer"><span id="hud-timer">5:00</span></div>
       </div>
       <div id="banner"></div>
       <div id="panel" class="hidden">
         <div id="panel-title"></div>
         <div id="panel-body"></div>
         <button id="panel-close">Close</button>
-      </div>
-      <div id="game-over" class="hidden">
-        <div id="game-over-text"></div>
       </div>
     `;
     this.el = {
@@ -95,8 +91,6 @@ export class UIController {
       panelTitle: document.getElementById('panel-title')!,
       panelBody: document.getElementById('panel-body')!,
       banner: document.getElementById('banner')!,
-      gameOver: document.getElementById('game-over')!,
-      gameOverText: document.getElementById('game-over-text')!,
     };
     document.getElementById('panel-close')!.addEventListener('click', () => this.closePanel());
   }
@@ -162,8 +156,9 @@ export class UIController {
     const m = Math.floor(totalSec / 60);
     const s = totalSec % 60;
     this.el.timer.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-
-    if (this.state.gameOver) this.renderGameOver();
+    // Flashes in the closing 10s of a running clock; frozen (and un-flashed)
+    // the instant the match ends, win-by-time or win-by-castle alike.
+    this.el.timer.classList.toggle('flashing', shouldFlashTimer(remainingMs, this.state.gameOver));
 
     this.refreshLivePanel();
   }
@@ -635,23 +630,6 @@ export class UIController {
     this.el.panelBody.appendChild(backBtn);
   }
 
-  private renderGameOver() {
-    this.el.gameOver.classList.remove('hidden');
-    const you = this.state.players[HUMAN];
-    const opp = this.state.players[this.state.opponentOf(HUMAN)];
-    let text: string;
-    if (this.state.gameOverReason === 'castle') {
-      text = this.state.winner === HUMAN ? 'Victory! Enemy castle destroyed.' : 'Defeat. Your castle was destroyed.';
-    } else if (this.state.winner === 0) {
-      text = `Time's up — draw (${you.score.toFixed(2)} – ${opp.score.toFixed(2)})`;
-    } else {
-      text =
-        this.state.winner === HUMAN
-          ? `Time's up — you win on points! (${you.score.toFixed(2)} – ${opp.score.toFixed(2)})`
-          : `Time's up — you lose on points. (${you.score.toFixed(2)} – ${opp.score.toFixed(2)})`;
-    }
-    this.el.gameOverText.textContent = text;
-  }
 }
 
 function labelName(b: Building): string {

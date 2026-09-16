@@ -34,7 +34,7 @@ export const TERRAIN: Record<TerrainType, TerrainDef> = {
   castleGround: { moveTimeMult: 1, combatStatMult: 1, effectText: 'No movement penalty', color: 0xb0a99f },
 };
 
-export const BASE_TILE_CROSS_MS = 900; // baseline ms to cross one plains-neutral tile
+export const BASE_TILE_CROSS_MS = 2000; // baseline ms to cross one plains-neutral tile
 
 /** Doubles the hills speed penalty for enemy troops near an opponent's hills House. */
 export const HOUSE_HILLS_ENEMY_DEBUFF_MULT = 2;
@@ -72,6 +72,8 @@ export interface BuildingDef {
   stoneCost?: number;
   buildTimeMs: number;
   maxHp: number;
+  /** Subtracted from an attacker's attack stat to find hit damage; if the attacker's attack doesn't exceed this, it isn't allowed to attack this building at all. */
+  defense: number;
   unlocks?: BuildingType[];
   /** Which tiles this building may be constructed on. Omitted = anywhere buildable. */
   allowedTerrain?: TerrainType[];
@@ -90,13 +92,15 @@ export interface BuildingDef {
 }
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
-  castle: { name: 'Castle', goldCost: 0, foodCost: 0, buildTimeMs: 0, maxHp: 500 },
+  // defense is never actually consulted for the castle -- only siege units may target it, and those aren't implemented yet.
+  castle: { name: 'Castle', goldCost: 0, foodCost: 0, buildTimeMs: 0, maxHp: 500, defense: 999 },
   farm: {
     name: 'Farm',
     goldCost: 10,
     foodCost: 0,
     buildTimeMs: 5000,
-    maxHp: 15,
+    maxHp: 10,
+    defense: 2,
     allowedTerrain: ['plains'],
     unlocks: ['barracks'],
     goldCostForNth: (n) => 10 + n * (n - 1),
@@ -107,12 +111,13 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     foodCost: 0,
     strawCost: 25,
     buildTimeMs: 8000,
-    maxHp: 25,
+    maxHp: 20,
+    defense: 10,
     allowedTerrain: ['plains', 'hills'],
     maxConcurrent: 1,
     upkeep: { gold: -2 },
     counterDamage: 4,
-    specialTrait: 'Training is 3s faster when a Farm is directly adjacent.',
+    specialTrait: 'Training is 3s faster when a Farm is directly adjacent. Any attacker that lands a hit takes 4 damage back.',
   },
   lumberMill: {
     name: 'Lumber Mill',
@@ -121,10 +126,11 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     strawCost: 35,
     buildTimeMs: 10000,
     maxHp: 20,
+    defense: 3,
     allowedTerrain: ['plains', 'hills'],
     requiresAdjacentTerrain: ['forest'],
     upkeep: { gold: -1, straw: -2 },
-    specialTrait: '+2 Wood per adjacent Forest tile.',
+    specialTrait: '+2 Wood per adjacent Forest tile, every 6s.',
   },
   quarry: {
     name: 'Quarry',
@@ -134,10 +140,11 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     strawCost: 40,
     buildTimeMs: 10000,
     maxHp: 25,
+    defense: 4,
     allowedTerrain: ['hills'],
     requiresAdjacentTerrain: ['mountains'],
     upkeep: { gold: -2, wood: -2, straw: -4 },
-    specialTrait: '+1 Stone per adjacent Mountain tile.',
+    specialTrait: '+1 Stone per adjacent Mountain tile, every 8s.',
   },
   fishersHut: {
     name: "Fisher's Hut",
@@ -147,6 +154,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     strawCost: 30,
     buildTimeMs: 8000,
     maxHp: 20,
+    defense: 2,
     allowedTerrain: ['plains', 'hills'],
     requiresAdjacentTerrain: ['river'],
     upkeep: { wood: -4, straw: -4 },
@@ -161,6 +169,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     strawCost: 40,
     buildTimeMs: 12000,
     maxHp: 20,
+    defense: 3,
     allowedTerrain: ['plains', 'forest', 'hills'],
     upkeep: { stone: -1, wood: -2, straw: -4 },
     specialTrait:
@@ -168,8 +177,6 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   },
 };
 
-/** Rebuilding a fully-destroyed building type is faster than building it fresh. */
-export const REBUILD_TIME_DISCOUNT_MS = 3000;
 export const MIN_BUILD_TIME_MS = 1000;
 
 // ---------- building production rates ----------
@@ -184,10 +191,10 @@ export const FARM_STRAW = {
 };
 
 export const LUMBER_MILL_WOOD_PER_FOREST = 2;
-export const LUMBER_MILL_WOOD_INTERVAL_MS = 8000;
+export const LUMBER_MILL_WOOD_INTERVAL_MS = 6000;
 
 export const QUARRY_STONE_PER_MOUNTAIN = 1;
-export const QUARRY_STONE_INTERVAL_MS = 6000;
+export const QUARRY_STONE_INTERVAL_MS = 8000;
 
 export const FISHERS_HUT_GOLD = { amount: 3, intervalMs: 5000 };
 export const FISHERS_HUT_FARM_FOOD_BONUS = 2;
@@ -277,8 +284,7 @@ export const SCORE = {
   constructOrRepair: 0.25,
 };
 
-/** Pillage: gold/food drained from an enemy building per second while being pillaged, granted to attacker. */
-export const PILLAGE_PER_SEC = { gold: 4, food: 2 };
-
-export const BUILDING_DAMAGE_PER_SEC = 20; // troop damage output vs buildings
 export const REPAIR_HP_PER_SEC = 15;
+
+/** Flat HP damage dealt every insolvent tick to every troop/building that consumes a resource whose reserve just ran dry. */
+export const INSOLVENCY_DAMAGE_PER_TICK = 10;

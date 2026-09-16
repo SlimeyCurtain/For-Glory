@@ -27,6 +27,8 @@ export interface ProductionFeed {
   amount: number;
   intervalMs: number;
   accumMs: number;
+  /** A credit-rebuilt building's first few completed ticks on each feed produce nothing, counted down here. */
+  skipTicksRemaining: number;
 }
 
 export interface Building {
@@ -48,6 +50,9 @@ export interface Building {
   extraUpkeep?: Partial<Record<ResourceKey, number>>;
   /** Castle-only: cooldown remaining before its next ranged shot. */
   attackCooldownMs?: number;
+  /** The exact resource cost and build time this instance was actually built for -- destroying it grants a rebuild credit at half of each. */
+  paidCost: Partial<Record<ResourceKey, number>>;
+  paidBuildTimeMs: number;
 }
 
 export type TroopOrder =
