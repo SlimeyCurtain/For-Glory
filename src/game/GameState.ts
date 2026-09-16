@@ -3,6 +3,7 @@ import {
   BASE_GOLD_PER_TICK,
   BUILDINGS,
   CASTLE_ATTACK,
+  CLEAR_RUBBLE_COST,
   FARM_FOOD,
   FARM_STRAW,
   FISHERS_HUT_FARM_FOOD_BONUS,
@@ -65,12 +66,16 @@ export class GameState {
   matchElapsedMs = 0;
   private resourceAccumMs: Record<ResourceKey, number> = { gold: 0, food: 0, straw: 0, wood: 0, stone: 0 };
   private rebuildCredits: RebuildCredit[] = [];
+  /** `${ownerId}:${type}` entries that have already scored their one-time first-construction point. */
+  private firstConstructionScored = new Set<string>();
   gameOver = false;
   winner: PlayerId | 0 | null = null;
   gameOverReason: GameOverReason = null;
   pendingScoreEvents: ScoreEvent[] = [];
   /** Castle shots fired this frame, for the scene to render a quick visual and then discard. */
   pendingCastleShots: { from: Offset; to: Offset }[] = [];
+  /** How many troop-vs-troop swings landed this tick -- read (and reset) each frame by the scene for the clash-of-metal cue. */
+  pendingCombatSwings = 0;
 
   constructor() {
     const map = generateMap();
@@ -102,9 +107,15 @@ export class GameState {
     return this.tiles.get(key(tile))?.terrain ?? null;
   }
 
+  /**
+   * A destroyed building still counts as "occupying" its tile -- it leaves
+   * rubble behind rather than vanishing, and that rubble physically blocks
+   * new construction (and troop movement) until someone pays to clear it.
+   * Once cleared, `issueClearRubble` removes the building from `buildings`
+   * entirely, so this naturally goes back to returning null for that tile.
+   */
   tileOccupiedByBuilding(o: Offset): Building | null {
     for (const b of this.buildings.values()) {
-      if (b.state === 'destroyed') continue;
       if (b.tile.col === o.col && b.tile.row === o.row) return b;
     }
     return null;
@@ -131,7 +142,12 @@ export class GameState {
     if (!t) return { ok: false, reason: 'Invalid tile' };
     if (t.terrain === 'mountains' || t.terrain === 'river')
       return { ok: false, reason: 'Cannot build on this terrain' };
-    if (this.tileOccupiedByBuilding(tile)) return { ok: false, reason: 'Tile occupied' };
+    const occupant = this.tileOccupiedByBuilding(tile);
+    if (occupant) {
+      return occupant.state === 'destroyed'
+        ? { ok: false, reason: 'Rubble here -- clear it first' }
+        : { ok: false, reason: 'Tile occupied' };
+    }
     if (!this.isOwnedTerritory(owner, tile)) return { ok: false, reason: 'Outside your territory' };
     return { ok: true };
   }
@@ -160,6 +176,52 @@ export class GameState {
       }
       return true;
     });
+  }
+
+  /**
+   * Nearest tile of the given terrain, reachable by walking the map from
+   * anywhere the player currently owns a building -- used by the AI to find
+   * a direction to expand in when it wants a terrain-adjacency building
+   * (Lumber Mill/Quarry/Fisher's Hut) but no qualifying spot exists in its
+   * territory yet.
+   */
+  nearestTerrainTile(owner: PlayerId, terrain: TerrainType): Offset | null {
+    const starts = this.buildingsOf(owner).map((b) => b.tile);
+    if (starts.length === 0) return null;
+    const seen = new Set(starts.map(key));
+    const queue: Offset[] = [...starts];
+    for (let i = 0; i < queue.length; i++) {
+      const cur = queue[i];
+      for (const n of neighborsOf(cur)) {
+        const k = key(n);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const t = this.tiles.get(k);
+        if (!t) continue;
+        if (t.terrain === terrain) return n;
+        queue.push(n);
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The player's own buildable, unoccupied territory tile that's closest to
+   * `target` -- claiming it (with anything) pushes their territory one ring
+   * nearer a resource they don't have access to yet.
+   */
+  closestBuildableTerritoryTile(owner: PlayerId, target: Offset): Offset | null {
+    let best: Offset | null = null;
+    let bestDist = Infinity;
+    for (const tile of this.ownedTerritoryTiles(owner)) {
+      if (!this.canBuildAt(owner, tile).ok) continue;
+      const d = hexDistance(tile, target);
+      if (d < bestDist) {
+        bestDist = d;
+        best = tile;
+      }
+    }
+    return best;
   }
 
   /**
@@ -294,6 +356,17 @@ export class GameState {
     if (b.state === 'destroyed') return;
     b.state = 'destroyed';
     this.grantRebuildCredit(b);
+  }
+
+  /** Pays to clear a destroyed building's rubble, freeing its tile for new construction. */
+  issueClearRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
+    const b = this.buildings.get(buildingId);
+    if (!b || b.ownerId !== owner || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    const player = this.players[owner];
+    if (player.gold < CLEAR_RUBBLE_COST) return { ok: false, reason: 'Not enough gold' };
+    player.gold -= CLEAR_RUBBLE_COST;
+    this.buildings.delete(b.id);
+    return { ok: true };
   }
 
   issueRepair(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
@@ -713,11 +786,18 @@ export class GameState {
         b.state = 'active';
         b.hp = b.maxHp;
         // Only ever scores on a building type's true first-ever completion --
-        // not extra copies, and not rebuilding one that was destroyed.
-        const hasAnyPriorOfType = [...this.buildings.values()].some(
-          (other) => other.id !== b.id && other.ownerId === b.ownerId && other.type === b.type
-        );
-        if (!hasAnyPriorOfType) this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
+        // not extra copies, and not rebuilding one that was destroyed. This
+        // has to be tracked explicitly rather than inferred from "does
+        // another building of this type exist right now": two of the same
+        // type can be under construction at once (nothing stops queuing a
+        // second Farm before the first finishes), and checking the map at
+        // completion time would see that sibling and wrongly conclude
+        // neither one is "first" -- losing the point entirely.
+        const key = `${b.ownerId}:${b.type}`;
+        if (!this.firstConstructionScored.has(key)) {
+          this.firstConstructionScored.add(key);
+          this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
+        }
       }
     }
   }
@@ -916,6 +996,7 @@ export class GameState {
   }
 
   private tickCombat(dtMs: number) {
+    this.pendingCombatSwings = 0;
     const troopList = [...this.troops.values()];
     const kills: { victimId: string; killerOwnerId: PlayerId }[] = [];
 
@@ -952,11 +1033,13 @@ export class GameState {
         if (aCan && a.attackCooldownMs <= 0) {
           const k = this.resolveStrike(a, b, dist > 1);
           a.attackCooldownMs = rollRange(TROOPS[a.type].attackSpeedMs);
+          this.pendingCombatSwings++;
           if (k) kills.push(k);
         }
         if (b.hp > 0 && bCan && b.attackCooldownMs <= 0) {
           const k = this.resolveStrike(b, a, dist > 1);
           b.attackCooldownMs = rollRange(TROOPS[b.type].attackSpeedMs);
+          this.pendingCombatSwings++;
           if (k) kills.push(k);
         }
       }

@@ -179,6 +179,9 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
 
 export const MIN_BUILD_TIME_MS = 1000;
 
+/** Flat gold cost to clear a destroyed building's rubble before anything new can go up on that tile. */
+export const CLEAR_RUBBLE_COST = 5;
+
 // ---------- building production rates ----------
 
 export const FARM_FOOD = {

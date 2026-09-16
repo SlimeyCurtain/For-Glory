@@ -1,4 +1,4 @@
-import { BUILDINGS, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
+import { BUILDINGS, CLEAR_RUBBLE_COST, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
 import type { ResourceKey, TerrainType, TroopType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
@@ -414,7 +414,10 @@ export class UIController {
     if (existingBuilding) {
       const b = document.createElement('p');
       b.className = 'hint';
-      b.textContent = `${labelName(existingBuilding)} — ${Math.ceil(existingBuilding.hp)}/${existingBuilding.maxHp} HP`;
+      b.textContent =
+        existingBuilding.state === 'destroyed'
+          ? `Rubble (was ${BUILDINGS[existingBuilding.type].name})`
+          : `${labelName(existingBuilding)} — ${Math.ceil(existingBuilding.hp)}/${existingBuilding.maxHp} HP`;
       this.el.panelBody.appendChild(b);
     }
 
@@ -468,11 +471,37 @@ export class UIController {
     this.el.panelBody.appendChild(backBtn);
   }
 
+  private renderRubbleInfo(b: Building) {
+    this.openPanel(`Rubble (was ${BUILDINGS[b.type].name})`);
+    this.el.panelBody.innerHTML = '';
+
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Blocks new construction until cleared.';
+    this.el.panelBody.appendChild(hint);
+
+    const player = this.state.players[HUMAN];
+    const btn = document.createElement('button');
+    btn.className = 'action-btn';
+    btn.textContent = `Clear Tile — ${CLEAR_RUBBLE_COST}g`;
+    btn.disabled = player.gold < CLEAR_RUBBLE_COST;
+    btn.addEventListener('click', () => {
+      const res = this.state.issueClearRubble(HUMAN, b.id);
+      if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+      else this.closePanel();
+    });
+    this.el.panelBody.appendChild(btn);
+  }
+
   private renderBuildingInfo() {
     if (!this.selectedBuildingId) return;
     const b = this.state.buildings.get(this.selectedBuildingId);
-    if (!b || b.state === 'destroyed') {
+    if (!b) {
       this.closePanel();
+      return;
+    }
+    if (b.state === 'destroyed') {
+      this.renderRubbleInfo(b);
       return;
     }
     this.openPanel(`${labelName(b)} — ${Math.ceil(b.hp)}/${b.maxHp} HP`);

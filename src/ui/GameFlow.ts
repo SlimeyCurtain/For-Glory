@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 import { MAP_COLS } from '../game/mapGen';
 import type { GameState } from '../game/GameState';
 import type { MainScene } from '../scenes/MainScene';
-import { playDefeatHorn, playFanfare } from './sound';
+import { playCountdownGo, playCountdownTick, playDefeatHorn, playFanfare, playVictoryCheer, startAmbientLoop, stopAmbientLoop } from './sound';
 
 const FADE_MS = 600;
 const TIMER_FLY_MS = 900;
@@ -112,6 +112,7 @@ export class GameFlow {
 
     await this.runCountdown();
     handles.scene.setFrozen(false);
+    startAmbientLoop();
   }
 
   private async runCountdown() {
@@ -146,6 +147,8 @@ export class GameFlow {
   private playCountdownWord(text: string): Promise<void> {
     return new Promise((resolve) => {
       this.countdownWord.textContent = text;
+      if (text === 'BEGIN') playCountdownGo();
+      else playCountdownTick();
       this.countdownWord.classList.remove('grow-shrink');
       void this.countdownWord.offsetWidth; // force reflow so the animation restarts
       this.countdownWord.classList.add('grow-shrink');
@@ -158,6 +161,7 @@ export class GameFlow {
   }
 
   private async runEndSequence(state: GameState) {
+    stopAmbientLoop();
     document.body.classList.add('darken', 'hud-hidden');
     await sleep(DARKEN_MS);
 
@@ -191,6 +195,7 @@ export class GameFlow {
       const winnerEl = state.winner === leftPlayerId ? leftEl : rightEl;
       winnerEl.classList.add('gold');
       playFanfare();
+      playVictoryCheer();
       const sideWord = state.winner === 1 ? 'BLUE' : 'RED';
       this.victoryText.textContent = `${sideWord} SETTLEMENT HAS WON THE GAME!`;
       this.victoryText.classList.add(state.winner === 1 ? 'blue' : 'red');
@@ -199,6 +204,7 @@ export class GameFlow {
   }
 
   private async exitToTitle() {
+    stopAmbientLoop();
     this.fadeOverlay.classList.add('visible');
     await sleep(FADE_MS);
 

@@ -199,6 +199,36 @@ export function drawBuildingIcon(g: G, type: BuildingType, x: number, y: number,
   }
 }
 
+/** A pile of rubble marking a destroyed building's tile -- deliberately owner-colorless debris, distinct from every live building icon. */
+export function drawRubbleIcon(g: G, x: number, y: number) {
+  const stoneLight = 0x8a8378;
+  const stoneMid = 0x6b6459;
+  const stoneDark = 0x4d473e;
+
+  g.fillStyle(stoneDark, 1);
+  g.fillEllipse(x, y + 8, 18, 6);
+
+  g.lineStyle(1, 0x2e2a24, 1);
+  g.fillStyle(stoneMid, 1);
+  g.fillRect(x - 11, y + 1, 8, 6);
+  g.strokeRect(x - 11, y + 1, 8, 6);
+  g.fillStyle(stoneLight, 1);
+  g.fillRect(x - 1, y - 3, 9, 7);
+  g.strokeRect(x - 1, y - 3, 9, 7);
+  g.fillStyle(stoneMid, 1);
+  g.fillRect(x + 3, y + 2, 7, 5);
+  g.strokeRect(x + 3, y + 2, 7, 5);
+  g.fillStyle(stoneLight, 1);
+  g.fillTriangle(x - 8, y + 1, x - 3, y - 6, x + 1, y + 1);
+  g.strokeTriangle(x - 8, y + 1, x - 3, y - 6, x + 1, y + 1);
+
+  g.lineStyle(1, 0x2e2a24, 0.6);
+  g.beginPath();
+  g.moveTo(x - 6, y - 2);
+  g.lineTo(x - 4, y + 1);
+  g.strokePath();
+}
+
 function drawCastleIcon(g: G, x: number, y: number, ownerColor: number) {
   const stone = 0x9a958c;
   const stoneDark = 0x726d64;

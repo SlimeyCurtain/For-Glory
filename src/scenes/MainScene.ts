@@ -4,7 +4,7 @@ import { AIController } from '../game/AIController';
 import { hexCorners, offsetToPixel } from '../game/hex';
 import type { Offset } from '../game/hex';
 import type { Building, Troop } from '../game/types';
-import { drawArcherIcon, drawBuildingIcon, drawHexTile, drawMilitiaIcon, seededRng, tileSeed } from './art';
+import { drawArcherIcon, drawBuildingIcon, drawHexTile, drawMilitiaIcon, drawRubbleIcon, seededRng, tileSeed } from './art';
 
 export const MARGIN = 60;
 const PLAYER_COLOR: Record<1 | 2, number> = { 1: 0x2563eb, 2: 0xdc2626 };
@@ -27,6 +27,12 @@ export interface SceneCallbacks {
   onTick(): void;
   /** Fires the instant any troop (either player's) enters the Defend stance. */
   onTroopDefend(): void;
+  /** Fires once per frame that had at least one troop-vs-troop swing land. */
+  onCombatHit(): void;
+  /** Fires the instant a building begins construction, a repair, or a rebuild. */
+  onBuildingWorkStart(): void;
+  /** Fires the instant a building is destroyed. */
+  onBuildingDestroyed(): void;
 }
 
 /** What the UI layer needs to draw a player-traced movement path on the map. */
@@ -40,6 +46,8 @@ interface BuildingSprite {
   icon: Phaser.GameObjects.Graphics;
   label: Phaser.GameObjects.Text;
   hpBar: Phaser.GameObjects.Rectangle;
+  lastRepairing: boolean;
+  lastState: Building['state'];
 }
 
 interface TroopSprite {
@@ -164,7 +172,11 @@ export class MainScene extends Phaser.Scene implements MapView {
   private syncBuildings() {
     const seen = new Set<string>();
     for (const b of this.state.buildings.values()) {
-      if (b.state === 'destroyed') continue;
+      // Destroyed buildings stay on the board as rubble (rendered below)
+      // instead of vanishing -- a cleared tile is a deliberate, paid action
+      // now, not an automatic side effect of the building dying. The sprite
+      // only actually disappears once `issueClearRubble` removes it from
+      // `state.buildings`, which shows up here as it dropping out of `seen`.
       seen.add(b.id);
       const center = this.toScreen(offsetToPixel(b.tile));
       let entry = this.buildingSprites.get(b.id);
@@ -175,18 +187,31 @@ export class MainScene extends Phaser.Scene implements MapView {
         const icon = this.add.graphics();
         const label = this.add.text(center.x, center.y + 17, '', { fontSize: '10px', color: '#ffffff', fontStyle: 'bold' }).setOrigin(0.5);
         const hpBar = this.add.rectangle(center.x, center.y - 22, 30, 4, 0x22c55e).setOrigin(0.5);
-        entry = { hit, icon, label, hpBar };
+        entry = { hit, icon, label, hpBar, lastRepairing: b.repairing, lastState: b.state };
         this.buildingSprites.set(b.id, entry);
+        // A building's very first appearance is exactly the moment it starts
+        // construction (fresh build or credit-funded rebuild alike, since
+        // both go through the same spawnBuilding path) -- the ideal, single
+        // hook for the "beginning construction" hammering cue.
+        this.callbacks.onBuildingWorkStart();
       }
+      if (b.repairing && !entry.lastRepairing) this.callbacks.onBuildingWorkStart();
+      if (b.state === 'destroyed' && entry.lastState !== 'destroyed') this.callbacks.onBuildingDestroyed();
+      entry.lastRepairing = b.repairing;
+      entry.lastState = b.state;
       entry.icon.clear();
-      drawBuildingIcon(entry.icon, b.type, center.x, center.y, PLAYER_COLOR[b.ownerId]);
+      if (b.state === 'destroyed') {
+        drawRubbleIcon(entry.icon, center.x, center.y);
+      } else {
+        drawBuildingIcon(entry.icon, b.type, center.x, center.y, PLAYER_COLOR[b.ownerId]);
+      }
       entry.icon.setAlpha(b.state === 'constructing' ? 0.6 : 1);
       entry.label.setText(b.type === 'barracks' && b.training ? `${Math.ceil(b.training.remainingMs / 1000)}s` : '');
       const pct = Math.max(0, b.hp / b.maxHp);
       entry.hpBar.width = 30 * pct;
       entry.hpBar.x = center.x - (30 * (1 - pct)) / 2;
       entry.hpBar.fillColor = pct > 0.5 ? 0x22c55e : pct > 0.25 ? 0xf59e0b : 0xef4444;
-      entry.hpBar.setVisible(b.hp < b.maxHp || b.state === 'constructing');
+      entry.hpBar.setVisible(b.state !== 'destroyed' && (b.hp < b.maxHp || b.state === 'constructing'));
     }
     for (const [id, entry] of this.buildingSprites) {
       if (!seen.has(id)) {
@@ -245,6 +270,7 @@ export class MainScene extends Phaser.Scene implements MapView {
     for (const shot of this.state.pendingCastleShots) {
       this.activeShotEffects.push({ from: shot.from, to: shot.to, life: SHOT_EFFECT_LIFE_MS });
     }
+    if (this.state.pendingCombatSwings > 0) this.callbacks.onCombatHit();
     this.activeShotEffects = this.activeShotEffects.filter((e) => {
       e.life -= delta;
       return e.life > 0;

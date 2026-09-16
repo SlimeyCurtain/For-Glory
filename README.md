@@ -25,22 +25,28 @@ Pressing Start fades to black while a fresh match (map, economy, both
 players) is built, then fades back in on a frozen game board: a big
 red **05:00** shrinks into its actual HUD position, followed by a
 **3 → 2 → 1 → BEGIN** countdown (each growing from nothing to a large
-bold number/word and back down, 2 seconds apiece). The match clock
-only starts moving once BEGIN finishes — nothing ticks before that,
-so there's no way to lose time to the intro.
+bold number/word and back down, 2 seconds apiece) — the 3/2/1 beeps
+are the same flat, monotone tone every time, and BEGIN answers with a
+single louder, higher-pitched one so the payoff is unmistakable. The
+match clock only starts moving once BEGIN finishes — nothing ticks
+before that, so there's no way to lose time to the intro. Once play
+begins, a soft, generative ambient bed (a quiet low drone plus
+occasional plucked notes) plays under the match — quiet enough to sit
+behind every other cue, not compete with them.
 
 In the closing 10 seconds of a running clock, the timer flashes
 red/white every second. When the match ends — by the clock running out
-or by a castle being destroyed — the board darkens, the HUD fades out,
-and a big blue number (you) and a big red number (the AI) count up
-together over their respective sides of the screen. The winning
-number turns gold (whichever number is higher, on a timeout; whoever
-destroyed the castle, on a castle win) with a short triumphant fanfare,
-victory text names the winning side, and a white **Exit** button fades
-to black and returns to the title screen, ready for a rematch. A tied
+or by a castle being destroyed — the ambient music stops, the board
+darkens, the HUD fades out, and a big blue number (you) and a big red
+number (the AI) count up together over their respective sides of the
+screen. The winning number turns gold (whichever number is higher, on
+a timeout; whoever destroyed the castle, on a castle win) with a short
+triumphant fanfare layered over the sound of a crowd cheering, victory
+text names the winning side, and a white **Exit** button fades to
+black and returns to the title screen, ready for a rematch. A tied
 score at time-out runs the exact same sequence, except both numbers
 turn grey, the text just reads "DRAW", and a low mournful horn plays
-instead of the fanfare.
+instead of the fanfare (no cheering — nobody actually won).
 
 You're assigned to the left or right side at random each match (never
 the same side as the AI, obviously) — your color is always blue and
@@ -112,7 +118,10 @@ the AI's is always red regardless of which side you land on.
 - **Troops don't chip away continuously — they swing on a cooldown**,
   randomized per hit so two of the same troop type trading blows don't
   always land in perfect lockstep (a Militia's cooldown re-rolls
-  somewhere in 1.3–1.7s, an Archer's in 2.0–2.6s). Each landed swing is
+  somewhere in 1.3–1.7s, an Archer's in 2.0–2.6s). Every landed swing
+  rings out with a metallic clash — with several troops trading blows
+  on their own independent cooldowns, it reads as a real scuffle rather
+  than a metronome. Each landed swing is
   a straight stat diff: attacker's attack minus defender's defense —
   positive hurts the defender, same as always. A *negative* result at
   **melee range** backfires the difference onto the attacker instead,
@@ -138,16 +147,23 @@ the AI's is always red regardless of which side you land on.
   Constructing a building only scores 0.25 the very first time you
   ever put up that building type — extra copies don't score, and
   neither does rebuilding one after it's destroyed.
+- **A destroyed building leaves rubble behind, with a crumbling sound
+  as it comes down** — a crumbled pile on its tile instead of the spot
+  just going empty, so it's never ambiguous whether that patch of
+  ground is buildable again yet. Rubble blocks any new construction
+  (and troop movement) until you pay **5 gold to Clear Tile**, an
+  action in the rubble's own info panel.
 - **Any destroyed building can be rebuilt at half price and half
-  time** — specifically, half of whatever that exact instance cost and
-  took to build, not half of the current (possibly escalated) price.
-  This applies building-by-building; you don't need every copy of a
-  type destroyed first, except for buildings capped at one at a time
-  (the Barracks), where that's already implied. The trade-off: a
-  credit-rebuilt building's first 3 completed ticks on each of its
-  production feeds yield nothing (still tick, just empty-handed) — a
-  bigger real-time setback on buildings with long cycles, like the
-  Quarry.
+  time** once its tile is cleared — specifically, half of whatever
+  that exact instance cost and took to build, not half of the current
+  (possibly escalated) price. This applies building-by-building; you
+  don't need every copy of a type destroyed first, except for
+  buildings capped at one at a time (the Barracks), where that's
+  already implied. The trade-off: a credit-rebuilt building's first 3
+  completed ticks on each of its production feeds yield nothing (still
+  tick, just empty-handed) — a bigger real-time setback on buildings
+  with long cycles, like the Quarry. Beginning construction, a repair,
+  or a rebuild all ring out with the same few hammer knocks.
 - **Castles defend themselves**: at level 1 (the only level so far),
   a castle is mechanically a stationed Archer — 10 attack, the same
   2.0–2.6s randomized attack speed, range 2, resolved through the same
@@ -230,6 +246,8 @@ rotates a monitor).
 - `src/ui/GameFlow.ts` — the title screen, start/countdown intro, and
   end-of-match victory sequence; owns creating and tearing down a
   match so replaying doesn't leak the previous game's state.
-- `src/ui/sound.ts` — the victory fanfare, defeat/draw horn, and
-  Defend shield-clang, all synthesized with Web Audio so the game
-  doesn't need to ship any audio assets.
+- `src/ui/sound.ts` — every sound cue (countdown ticks, ambient
+  background bed, combat clashes, hammering, crumbling rubble, the
+  victory fanfare + crowd cheer, and the defeat/draw horn), all
+  synthesized with Web Audio so the game doesn't need to ship any
+  audio assets.
