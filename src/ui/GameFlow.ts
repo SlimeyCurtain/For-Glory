@@ -182,7 +182,10 @@ export class GameFlow {
     ]);
 
     if (state.winner === 0 || state.winner === null) {
-      this.victoryText.textContent = 'THE BATTLE ENDS IN A DRAW!';
+      leftEl.classList.add('grey');
+      rightEl.classList.add('grey');
+      this.victoryText.textContent = 'DRAW';
+      this.victoryText.classList.add('grey');
     } else {
       const winnerEl = state.winner === leftPlayerId ? leftEl : rightEl;
       winnerEl.classList.add('gold');

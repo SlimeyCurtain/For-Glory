@@ -540,6 +540,10 @@ body.title-screen #platform-toggle {
   text-shadow: 0 0 40px rgba(251, 191, 36, 0.7);
 }
 
+.victory-num.grey {
+  color: #9ca3af;
+}
+
 #victory-text {
   position: relative;
   margin-top: 220px;
@@ -557,6 +561,10 @@ body.title-screen #platform-toggle {
 
 #victory-text.red {
   color: #ef4444;
+}
+
+#victory-text.grey {
+  color: #9ca3af;
 }
 
 #victory-exit {
