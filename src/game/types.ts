@@ -79,6 +79,8 @@ export interface Troop {
   segmentElapsedMs: number;
   segmentDurationMs: number;
   order: TroopOrder;
+  /** Milliseconds until this troop's next discrete attack; re-rolled within its type's speed range after each swing. */
+  attackCooldownMs: number;
 }
 
 export interface ScoreEvent {

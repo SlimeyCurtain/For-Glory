@@ -30,7 +30,7 @@ import {
   TERRAIN,
   TROOPS,
 } from './balance';
-import type { BuildingType, ResourceKey, TerrainType, TroopType } from './balance';
+import type { BuildingType, ResourceKey, SpeedRange, TerrainType, TroopType } from './balance';
 import { key, neighborsOf, hexDistance } from './hex';
 import type { Offset } from './hex';
 import { generateMap } from './mapGen';
@@ -41,6 +41,11 @@ import type { Building, PlayerId, PlayerState, ProductionFeed, ScoreEvent, Train
 
 let nextId = 1;
 const genId = (prefix: string) => `${prefix}${nextId++}`;
+
+/** A fresh random cooldown within a speed range -- deliberately non-deterministic, so e.g. two archers trading blows don't always land in lockstep. */
+function rollRange(range: SpeedRange): number {
+  return range.min + Math.random() * (range.max - range.min);
+}
 
 export type GameOverReason = 'castle' | 'time' | null;
 
@@ -237,7 +242,10 @@ export class GameState {
     const cost = credit ? credit.cost : this.previewBuildCost(owner, type);
     const buildTimeMs = credit ? credit.buildTimeMs : BUILDINGS[type].buildTimeMs;
     for (const resource of Object.keys(cost) as ResourceKey[]) {
-      if (player[resource] < (cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
+      if (player[resource] < (cost[resource] ?? 0)) {
+        if (credit) this.rebuildCredits.push(credit); // don't burn the discount on a failed attempt
+        return { ok: false, reason: 'Not enough resources' };
+      }
     }
     for (const resource of Object.keys(cost) as ResourceKey[]) {
       player[resource] -= cost[resource] ?? 0;
@@ -748,6 +756,7 @@ export class GameState {
       segmentElapsedMs: 0,
       segmentDurationMs: 0,
       order: { kind: 'idle' },
+      attackCooldownMs: rollRange(def.attackSpeedMs),
     };
     this.troops.set(troop.id, troop);
   }
@@ -882,31 +891,39 @@ export class GameState {
 
   /**
    * A strike's outcome is a straight attack-minus-defense diff: a positive
-   * result damages the defender, a negative one backfires onto the attacker
-   * instead (losing a fight you had no business picking), and zero does
-   * nothing to either side. Returns a kill record for whichever side's HP
-   * ran out, or null if neither did.
+   * result damages the defender, same as always. A negative result only
+   * backfires onto the attacker at melee range (distance 1) -- losing a
+   * fight you had no business picking up close costs you. A ranged miss
+   * (fired from beyond melee range) is simply harmless: the attacker is far
+   * enough away that a target's higher defense can't hurt back. Zero does
+   * nothing to either side either way. Returns a kill record for whichever
+   * side's HP ran out, or null if neither did.
    */
-  private resolveStrike(attacker: Troop, defender: Troop, dtSec: number): { victimId: string; killerOwnerId: PlayerId } | null {
+  private resolveStrike(attacker: Troop, defender: Troop, isRanged: boolean): { victimId: string; killerOwnerId: PlayerId } | null {
     const atk = attacker.attack * this.terrainMultAt(attacker.tile);
     const defMult = defender.order.kind === 'defend' ? 2 : 1; // Defend: double defense while immobile
     const def = defender.defense * this.terrainMultAt(defender.tile) * defMult;
     const diff = atk - def;
 
     if (diff > 0) {
-      defender.hp -= diff * dtSec;
+      defender.hp -= diff;
       if (defender.hp <= 0) return { victimId: defender.id, killerOwnerId: attacker.ownerId };
-    } else if (diff < 0) {
-      attacker.hp -= -diff * dtSec;
+    } else if (diff < 0 && !isRanged) {
+      attacker.hp -= -diff;
       if (attacker.hp <= 0) return { victimId: attacker.id, killerOwnerId: defender.ownerId };
     }
     return null;
   }
 
   private tickCombat(dtMs: number) {
-    const dtSec = dtMs / 1000;
     const troopList = [...this.troops.values()];
     const kills: { victimId: string; killerOwnerId: PlayerId }[] = [];
+
+    // Attack cooldowns recharge continuously, engaged or not -- a troop
+    // that hasn't fought in a while is simply ready the instant it does.
+    for (const t of troopList) {
+      t.attackCooldownMs = Math.max(0, t.attackCooldownMs - dtMs);
+    }
 
     for (let i = 0; i < troopList.length; i++) {
       const a = troopList[i];
@@ -916,6 +933,7 @@ export class GameState {
         if (b.hp <= 0) continue;
         if (a.ownerId === b.ownerId) continue;
 
+        const dist = hexDistance(a.tile, b.tile);
         const aCan = this.canStrike(a, b.tile);
         const bCan = this.canStrike(b, a.tile);
         if (!aCan && !bCan) continue;
@@ -931,12 +949,14 @@ export class GameState {
           b.path = null;
         }
 
-        if (aCan) {
-          const k = this.resolveStrike(a, b, dtSec);
+        if (aCan && a.attackCooldownMs <= 0) {
+          const k = this.resolveStrike(a, b, dist > 1);
+          a.attackCooldownMs = rollRange(TROOPS[a.type].attackSpeedMs);
           if (k) kills.push(k);
         }
-        if (bCan) {
-          const k = this.resolveStrike(b, a, dtSec);
+        if (b.hp > 0 && bCan && b.attackCooldownMs <= 0) {
+          const k = this.resolveStrike(b, a, dist > 1);
+          b.attackCooldownMs = rollRange(TROOPS[b.type].attackSpeedMs);
           if (k) kills.push(k);
         }
       }
@@ -954,6 +974,7 @@ export class GameState {
     }
   }
 
+  /** Level 1 castle defense is mechanically a stationed Archer: same attack, same attack speed, same range. */
   private tickCastleDefense(dtMs: number) {
     this.pendingCastleShots = [];
     for (const castle of this.buildings.values()) {
@@ -968,8 +989,11 @@ export class GameState {
       targets.sort((a, b) => hexDistance(a.tile, castle.tile) - hexDistance(b.tile, castle.tile));
       const target = targets[0];
 
-      target.hp -= CASTLE_ATTACK.damage; // ignores defense entirely -- an archer volley, not a melee trade
-      castle.attackCooldownMs = CASTLE_ATTACK.cooldownMs;
+      const defMult = target.order.kind === 'defend' ? 2 : 1;
+      const def = target.defense * this.terrainMultAt(target.tile) * defMult;
+      const diff = CASTLE_ATTACK.attack - def;
+      if (diff > 0) target.hp -= diff;
+      castle.attackCooldownMs = rollRange(CASTLE_ATTACK.attackSpeedMs);
       this.pendingCastleShots.push({ from: castle.tile, to: target.tile });
 
       if (target.hp <= 0) {

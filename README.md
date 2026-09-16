@@ -35,9 +35,12 @@ or by a castle being destroyed — the board darkens, the HUD fades out,
 and a big blue number (you) and a big red number (the AI) count up
 together over their respective sides of the screen. The winning
 number turns gold (whichever number is higher, on a timeout; whoever
-destroyed the castle, on a castle win) with a short fanfare, victory
-text names the winning side, and a white **Exit** button fades to
-black and returns to the title screen, ready for a rematch.
+destroyed the castle, on a castle win) with a short triumphant fanfare,
+victory text names the winning side, and a white **Exit** button fades
+to black and returns to the title screen, ready for a rematch. A tied
+score at time-out runs the exact same sequence, except both numbers
+turn grey, the text just reads "DRAW", and a low mournful horn plays
+instead of the fanfare.
 
 You're assigned to the left or right side at random each match (never
 the same side as the AI, obviously) — your color is always blue and
@@ -98,21 +101,32 @@ the AI's is always red regardless of which side you land on.
   the odd lone peak or ridge to route around).
 - **Defend** doubles a troop's defense and roots it in place until you
   move it, attack, or it dies — it survives a combat engagement intact
-  instead of being overridden. Archers rely on it: they can strike at
-  range 2 at any time, but can't fight an adjacent enemy unless
-  they're defending.
-- **Combat is a straight stat diff.** Attacker's attack minus
-  defender's defense is the damage dealt — a positive number hurts the
-  defender, same as always. But a *negative* number now backfires: if
-  your attack doesn't beat their defense, **you** take the difference
-  instead, every tick, for as long as you keep fighting a matchup you
-  can't win. Against a building specifically, that losing matchup isn't
-  even allowed to start — if your troop's attack doesn't exceed the
-  building's defense, the attack order is refused outright rather than
-  quietly failing. Buildings never take reciprocal damage from a
-  failed attack against them, but the Barracks still counters: any
-  attacker whose hit actually lands against it takes 4 flat damage
-  back, on top of whatever it dealt.
+  instead of being overridden, and you can switch a troop into it
+  *mid-fight* without pulling it out of combat (it keeps trading blows,
+  just tougher). Archers rely on it: they can strike at range 2 at any
+  time, but can't fight an adjacent enemy unless they're defending.
+  Any troop entering Defend — yours or the enemy's — rings out with a
+  distinct metallic shield sound, deliberately audible to both players:
+  an attentive opponent who hears it and keeps swinging anyway is about
+  to waste their troop against a doubled defense for nothing.
+- **Troops don't chip away continuously — they swing on a cooldown**,
+  randomized per hit so two of the same troop type trading blows don't
+  always land in perfect lockstep (a Militia's cooldown re-rolls
+  somewhere in 1.3–1.7s, an Archer's in 2.0–2.6s). Each landed swing is
+  a straight stat diff: attacker's attack minus defender's defense —
+  positive hurts the defender, same as always. A *negative* result at
+  **melee range** backfires the difference onto the attacker instead,
+  every swing, for as long as it keeps fighting a matchup it can't win.
+  At **range** (further than 1 tile), a failed swing is just harmless —
+  the attacker is far enough away that a defender's higher stat can't
+  reach back, though two ranged units trading fire still risk each
+  other normally in whichever direction actually connects. Against a
+  building specifically, a losing matchup isn't even allowed to start —
+  if a troop's attack doesn't exceed the building's defense, the attack
+  order is refused outright. Buildings never take reciprocal damage
+  from a failed attack, but the Barracks still counters: any attacker
+  whose hit actually lands against it takes 4 flat damage back, on top
+  of whatever it dealt.
 - **Pillaging a building down to zero HP grants a one-time bonus**
   equal to everything that building was actively producing (e.g.
   destroying a Lumber Mill bordered by 3 forest tiles hands you a
@@ -134,9 +148,11 @@ the AI's is always red regardless of which side you land on.
   production feeds yield nothing (still tick, just empty-handed) — a
   bigger real-time setback on buildings with long cycles, like the
   Quarry.
-- **Castles defend themselves**: any enemy troop that wanders within 2
-  tiles of a castle gets hit for 20 flat damage (ignoring defense) on
-  a cooldown.
+- **Castles defend themselves**: at level 1 (the only level so far),
+  a castle is mechanically a stationed Archer — 10 attack, the same
+  2.0–2.6s randomized attack speed, range 2, resolved through the same
+  defense-diff formula as any other ranged attack (so a well-defended
+  target can shrug it off entirely).
 
 ### Buildings
 
@@ -146,15 +162,15 @@ the AI's is always red regardless of which side you land on.
 | Barracks | Plains/Hills | 25 gold + 25 straw | 20 hp / 10 def | Trains troops | Only one active/constructing at a time; trains 3s faster next to a Farm; counters a landed hit for 4 damage |
 | Lumber Mill | Plains/Hills, adjacent to Forest | 30 gold + 35 straw | 20 hp / 3 def | 2 wood per adjacent Forest tile / 6s | Unlocks the Archer once active |
 | Quarry | Hills, adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
-| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 50 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | +2 food to any directly adjacent Farm |
+| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | +2 food to any directly adjacent Farm |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
 
 ### Troops
 
-| Troop | Cost | Stats | Notes |
-| --- | --- | --- | --- |
-| Militia | 2 gold + 2 food | 5 atk / 5 def / 10 hp | Melee, can attack buildings |
-| Archer | 4 gold + 2 food + 5 wood | 10 atk / 7 def / 15 hp | Requires active wood production; strikes at range 2 always, needs Defend to fight adjacent; can't attack buildings |
+| Troop | Cost | Stats | Attack Speed | Notes |
+| --- | --- | --- | --- | --- |
+| Militia | 2 gold + 2 food | 5 atk / 5 def / 10 hp | 1.3–1.7s | Melee, can attack buildings |
+| Archer | 4 gold + 2 food + 5 wood | 10 atk / 7 def / 15 hp | 2.0–2.6s | Requires active wood production; strikes at range 2 always, needs Defend to fight adjacent; can't attack buildings |
 
 ## Map
 
@@ -214,5 +230,6 @@ rotates a monitor).
 - `src/ui/GameFlow.ts` — the title screen, start/countdown intro, and
   end-of-match victory sequence; owns creating and tearing down a
   match so replaying doesn't leak the previous game's state.
-- `src/ui/sound.ts` — the victory fanfare, synthesized with Web Audio
-  so the game doesn't need to ship an audio asset.
+- `src/ui/sound.ts` — the victory fanfare, defeat/draw horn, and
+  Defend shield-clang, all synthesized with Web Audio so the game
+  doesn't need to ship any audio assets.

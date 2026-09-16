@@ -1,5 +1,5 @@
-import { TROOPS } from './balance';
-import type { BuildingType } from './balance';
+import { BUILDINGS, RESOURCE_TICK_MS, TROOPS } from './balance';
+import type { BuildingType, ResourceKey, TroopType } from './balance';
 import { GameState } from './GameState';
 import type { PlayerId } from './types';
 
@@ -30,18 +30,38 @@ export class AIController {
     this.maybeRepair();
   }
 
+  /**
+   * Whether taking on this much more per-resource upkeep would still leave
+   * every affected resource's net rate non-negative -- the actual thing
+   * that starves an economy isn't the one-time cost (issueBuild/issueTrain
+   * already refuse what isn't affordable), it's stacking recurring drain
+   * faster than production grows to cover it.
+   */
+  private canSustainUpkeep(upkeep: Partial<Record<ResourceKey, number>>): boolean {
+    for (const resource of Object.keys(upkeep) as ResourceKey[]) {
+      const perTick = upkeep[resource] ?? 0;
+      if (perTick === 0) continue;
+      const perSecond = perTick / (RESOURCE_TICK_MS[resource] / 1000);
+      if (this.state.netResourceRatePerSec(this.me, resource) + perSecond < 0.1) return false;
+    }
+    return true;
+  }
+
   private maybeBuild() {
-    // Costs vary (farms escalate, some buildings need adjacency) so we just
-    // attempt each in priority order and let issueBuild's own validation
-    // reject whatever isn't affordable or buildable yet -- simpler than
-    // duplicating that logic here, and stays correct as balance changes.
-    const priority: BuildingType[] = ['barracks', 'lumberMill', 'farm'];
+    // Farms are pure income (one-time gold, no ongoing upkeep) so they're
+    // always worth adding while territory and the escalating price allow.
+    // Upkeep-bearing buildings only get attempted once the economy could
+    // actually absorb their recurring drain.
     const territory = this.state.ownedTerritoryTiles(this.me);
+
+    const priority: BuildingType[] = ['farm', 'barracks', 'lumberMill'];
 
     for (const type of priority) {
       const countOfType = this.state.buildingsOf(this.me).filter((b) => b.type === type).length;
-      if (type === 'farm' && countOfType >= 2) continue;
+      if (type === 'farm' && countOfType >= 4) continue;
       if (type === 'lumberMill' && countOfType >= 1) continue;
+      const upkeep = BUILDINGS[type].upkeep;
+      if (upkeep && !this.canSustainUpkeep(upkeep)) continue;
 
       const spot = territory.find(
         (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes(type)
@@ -54,7 +74,11 @@ export class AIController {
     const barracks = this.state.buildingsOf(this.me).find((b) => b.type === 'barracks' && b.state === 'active' && !b.training);
     if (!barracks) return;
     const hasWood = this.state.buildingsOf(this.me).some((b) => b.type === 'lumberMill' && b.state === 'active');
-    const type = hasWood && TROOPS.archer.requiresWoodProduction ? 'archer' : 'militia';
+    const type: TroopType = hasWood && TROOPS.archer.requiresWoodProduction ? 'archer' : 'militia';
+    // A new troop is permanent extra upkeep -- only commit to one if the
+    // economy can actually absorb it, so the army doesn't grow faster than
+    // the production backing it (which is exactly what starves it out).
+    if (!this.canSustainUpkeep(TROOPS[type].upkeep)) return;
     this.state.issueTrain(this.me, barracks.id, type);
   }
 

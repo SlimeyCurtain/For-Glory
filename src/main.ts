@@ -8,6 +8,7 @@ import type { MatchHandles } from './ui/GameFlow';
 import { MAP_COLS, MAP_ROWS } from './game/mapGen';
 import { HEX_SIZE, offsetToPixel } from './game/hex';
 import { applyDisplayMode, detectInitialMode, onDisplayModeToggle } from './platformMode';
+import { playDefendClang } from './ui/sound';
 
 // Apply the mobile/desktop body class before Phaser ever measures
 // #game-container, so the very first frame is already sized correctly.
@@ -38,6 +39,7 @@ function createMatch(): MatchHandles {
       ui.onTick();
       gameFlow.onTick();
     },
+    onTroopDefend: () => playDefendClang(),
   });
   ui = new UIController(state, uiRoot, scene);
 

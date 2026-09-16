@@ -60,3 +60,36 @@ export function playDefeatHorn() {
     2800
   );
 }
+
+/**
+ * A quick metallic shield-clang for a troop entering Defend -- deliberately
+ * audible to both players (not just whoever ordered it), since noticing it
+ * is the whole point: an attacker who keeps swinging at a now-doubled
+ * defense is about to shred their own troop for nothing.
+ */
+export function playDefendClang() {
+  try {
+    const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new Ctx();
+    const now = ctx.currentTime;
+    // A handful of close, inharmonic high partials struck at once and left
+    // to ring out reads as "metal", where a single clean tone would just
+    // sound like a beep.
+    const partials = [1180, 1390, 1660, 2350];
+    for (const freq of partials) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = freq;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      gain.gain.setValueAtTime(0.16, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+      osc.start(now);
+      osc.stop(now + 0.36);
+    }
+    window.setTimeout(() => ctx.close(), 500);
+  } catch {
+    // Audio isn't available in every environment -- Defend still works fine without the cue.
+  }
+}

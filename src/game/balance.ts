@@ -150,7 +150,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     name: "Fisher's Hut",
     goldCost: 20,
     foodCost: 0,
-    woodCost: 50,
+    woodCost: 40,
     strawCost: 30,
     buildTimeMs: 8000,
     maxHp: 20,
@@ -210,6 +210,12 @@ export const BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS = 3000;
 
 export type TroopType = 'militia' | 'archer';
 
+/** A randomized window an attack cooldown is rolled from, so e.g. two archers trading blows don't always land in lockstep. */
+export interface SpeedRange {
+  min: number;
+  max: number;
+}
+
 export interface TroopDef {
   name: string;
   goldCost: number;
@@ -230,6 +236,8 @@ export interface TroopDef {
   upkeep: Partial<Record<ResourceKey, number>>;
   /** Player must have active wood production to train this troop. */
   requiresWoodProduction?: boolean;
+  /** Milliseconds between this troop's discrete attacks, re-rolled after every swing. */
+  attackSpeedMs: SpeedRange;
   /** Short description of this troop's unique behavior, shown in its info panel. */
   specialTrait?: string;
 }
@@ -248,6 +256,7 @@ export const TROOPS: Record<TroopType, TroopDef> = {
     attackRange: 1,
     canAttackBuildings: true,
     upkeep: { gold: -1, food: -1 },
+    attackSpeedMs: { min: 1300, max: 1700 },
   },
   archer: {
     name: 'Archer',
@@ -265,15 +274,19 @@ export const TROOPS: Record<TroopType, TroopDef> = {
     canAttackBuildings: false,
     upkeep: { gold: -2, food: -1, wood: -1 },
     requiresWoodProduction: true,
+    attackSpeedMs: { min: 2000, max: 2600 },
     specialTrait: 'Strikes at range 2 always. Cannot fight at range 1 unless Defending.',
   },
 };
 
-/** The castle's passive ranged defense: auto-fires at the nearest enemy troop within range. Placeholder numbers, tunable. */
+/**
+ * The castle's passive ranged defense at level 1: mechanically a stationed
+ * Archer -- same attack stat, same attack speed range, same range.
+ */
 export const CASTLE_ATTACK = {
   range: 2,
-  damage: 20, // ignores defense entirely -- comfortably kills a 10hp militia or 15hp archer in one shot
-  cooldownMs: 1500,
+  attack: TROOPS.archer.attack,
+  attackSpeedMs: TROOPS.archer.attackSpeedMs,
 };
 
 export const MATCH_DURATION_MS = 5 * 60 * 1000;

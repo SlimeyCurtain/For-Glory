@@ -549,6 +549,11 @@ export class UIController {
     }
     this.openPanel(`${TROOPS[t.type].name} — ${Math.ceil(t.hp)}/${t.maxHp} HP (${orderLabel(t)})`);
     this.el.panelBody.innerHTML = '';
+    const speed = TROOPS[t.type].attackSpeedMs;
+    const speedHint = document.createElement('p');
+    speedHint.className = 'hint';
+    speedHint.textContent = `Attacks every ${(speed.min / 1000).toFixed(1)}–${(speed.max / 1000).toFixed(1)}s`;
+    this.el.panelBody.appendChild(speedHint);
     this.renderSpecialTrait(TROOPS[t.type].specialTrait);
 
     const moveBtn = document.createElement('button');

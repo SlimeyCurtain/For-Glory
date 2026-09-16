@@ -9,12 +9,24 @@ import { drawArcherIcon, drawBuildingIcon, drawHexTile, drawMilitiaIcon, seededR
 export const MARGIN = 60;
 const PLAYER_COLOR: Record<1 | 2, number> = { 1: 0x2563eb, 2: 0xdc2626 };
 const SHOT_EFFECT_LIFE_MS = 250;
+/**
+ * A backgrounded tab (phone screen lock, app switch) stops rAF entirely,
+ * then resumes with one frame whose `delta` covers the whole gap -- possibly
+ * minutes. Feeding that straight into the sim would spin every `while`
+ * catch-up loop in GameState (production ticks, upkeep ticks) thousands of
+ * times in one synchronous burst, freezing the frame and then dumping a
+ * chaotic pile of changes at once. Clamping here sacrifices perfectly
+ * accounting for backgrounded time in exchange for never doing that.
+ */
+const MAX_DT_MS = 250;
 
 export interface SceneCallbacks {
   onTileClick(tile: Offset): void;
   onBuildingClick(building: Building): void;
   onTroopClick(troop: Troop): void;
   onTick(): void;
+  /** Fires the instant any troop (either player's) enters the Defend stance. */
+  onTroopDefend(): void;
 }
 
 /** What the UI layer needs to draw a player-traced movement path on the map. */
@@ -35,6 +47,7 @@ interface TroopSprite {
   ring: Phaser.GameObjects.Graphics;
   icon: Phaser.GameObjects.Graphics;
   hpBar: Phaser.GameObjects.Rectangle;
+  lastOrderKind: string;
 }
 
 interface ShotEffect {
@@ -111,8 +124,18 @@ export class MainScene extends Phaser.Scene implements MapView {
 
   update(_time: number, delta: number) {
     if (!this.state.gameOver && !this.frozen) {
-      this.state.update(delta);
-      this.ai.update(delta);
+      const dtMs = Math.min(delta, MAX_DT_MS);
+      // A sim tick throwing (an edge case we haven't hit in testing, but
+      // can't fully rule out on a live device) would otherwise propagate out
+      // of Phaser's step and silently stop every future frame from ever
+      // running -- exactly the "stalls out and just stops" failure mode.
+      // Skipping the one bad frame keeps the game alive instead.
+      try {
+        this.state.update(dtMs);
+        this.ai.update(dtMs);
+      } catch (err) {
+        console.error('Sim tick failed, skipping this frame:', err);
+      }
     }
     this.syncBuildings();
     this.syncTroops();
@@ -189,9 +212,13 @@ export class MainScene extends Phaser.Scene implements MapView {
         const ring = this.add.graphics();
         const icon = this.add.graphics();
         const hpBar = this.add.rectangle(pixel.x, pixel.y - 16, 20, 3, 0x22c55e).setOrigin(0.5);
-        entry = { hit, ring, icon, hpBar };
+        entry = { hit, ring, icon, hpBar, lastOrderKind: 'idle' };
         this.troopSprites.set(t.id, entry);
       }
+      if (t.order.kind === 'defend' && entry.lastOrderKind !== 'defend') {
+        this.callbacks.onTroopDefend();
+      }
+      entry.lastOrderKind = t.order.kind;
       entry.hit.setPosition(pixel.x, pixel.y);
       entry.ring.clear();
       entry.ring.lineStyle(2, orderRingColor(t), 1);
