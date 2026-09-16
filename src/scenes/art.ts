@@ -217,26 +217,54 @@ function drawCastleIcon(g: G, x: number, y: number, ownerColor: number) {
 }
 
 function drawFarmIcon(g: G, x: number, y: number, ownerColor: number) {
+  // plowed plot
+  g.fillStyle(0x7a5c34, 1);
+  g.fillRoundedRect(x - 14, y - 7, 28, 19, 3);
   g.lineStyle(2, ownerColor, 1);
-  g.fillStyle(0x8b5e34, 1);
-  g.fillRect(x - 10, y - 2, 20, 12);
-  g.strokeRect(x - 10, y - 2, 20, 12);
+  g.strokeRoundedRect(x - 14, y - 7, 28, 19, 3);
 
-  g.fillStyle(0x6e2f22, 1);
-  g.beginPath();
-  g.moveTo(x - 13, y - 2);
-  g.lineTo(x, y - 13);
-  g.lineTo(x + 13, y - 2);
-  g.closePath();
-  g.fillPath();
-  g.lineStyle(1, 0x4a1f17, 1);
-  g.strokePath();
+  // furrow lines in the soil
+  g.lineStyle(1, 0x63481f, 0.6);
+  for (const fy of [y - 1, y + 5]) {
+    g.beginPath();
+    g.moveTo(x - 12, fy);
+    g.lineTo(x + 12, fy);
+    g.strokePath();
+  }
 
-  g.fillStyle(0xdcd0b0, 1);
-  g.fillRect(x - 2.5, y + 1, 5, 5);
+  // rows of wheat stalks
+  const wheatGold = 0xe0b03c;
+  const wheatDark = 0xc4922a;
+  for (let row = 0; row < 2; row++) {
+    for (let col = 0; col < 4; col++) {
+      const sx = x - 10 + col * 6.6;
+      const sy = y - 3 + row * 6.5;
+      g.lineStyle(1.2, 0x8a6a2a, 1);
+      g.beginPath();
+      g.moveTo(sx, sy + 3.5);
+      g.lineTo(sx, sy - 3);
+      g.strokePath();
+      g.fillStyle(row === 0 ? wheatGold : wheatDark, 1);
+      g.fillEllipse(sx, sy - 4, 2, 3.6);
+    }
+  }
+
+  // fence posts framing the plot
+  g.fillStyle(0x5a3a1c, 1);
+  g.fillRect(x - 16, y - 9, 2.2, 7);
+  g.fillRect(x + 13.8, y - 9, 2.2, 7);
 }
 
 function drawBarracksIcon(g: G, x: number, y: number, ownerColor: number) {
+  // second, smaller tent peeking out behind -- reads as a camp, not one tent
+  g.fillStyle(0x62623c, 1);
+  g.beginPath();
+  g.moveTo(x - 17, y + 8);
+  g.lineTo(x - 9, y - 3);
+  g.lineTo(x - 2, y + 8);
+  g.closePath();
+  g.fillPath();
+
   g.fillStyle(0x7a7a4a, 1);
   g.beginPath();
   g.moveTo(x - 14, y + 9);
@@ -254,6 +282,15 @@ function drawBarracksIcon(g: G, x: number, y: number, ownerColor: number) {
   g.lineTo(x + 4, y + 9);
   g.closePath();
   g.fillPath();
+
+  // campfire out front
+  g.fillStyle(0x8a8a8a, 1);
+  g.fillCircle(x + 8, y + 9, 1.8);
+  g.fillCircle(x + 11.5, y + 9.5, 1.4);
+  g.fillStyle(0xf59e0b, 1);
+  fillTriangleUp(g, x + 9.5, y + 3.5, 1.8, 4.5);
+  g.fillStyle(0xef4444, 0.85);
+  fillTriangleUp(g, x + 9.5, y + 5.2, 1.1, 2.6);
 
   g.lineStyle(1.5, 0x3a3a3a, 1);
   g.beginPath();

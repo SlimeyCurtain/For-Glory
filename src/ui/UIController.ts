@@ -12,6 +12,7 @@ export class UIController {
   private el: {
     gold: HTMLElement;
     food: HTMLElement;
+    straw: HTMLElement;
     timer: HTMLElement;
     scoreYou: HTMLElement;
     scoreOpp: HTMLElement;
@@ -44,6 +45,7 @@ export class UIController {
       <div id="hud">
         <div class="hud-group"><span class="hud-label">Gold</span><span id="hud-gold">0</span></div>
         <div class="hud-group"><span class="hud-label">Food</span><span id="hud-food">0</span></div>
+        <div class="hud-group"><span class="hud-label">Straw</span><span id="hud-straw">0</span></div>
         <div class="hud-group hud-timer"><span id="hud-timer">5:00</span></div>
         <div class="hud-group"><span class="hud-label">You</span><span id="hud-score-you">0</span></div>
         <div class="hud-group"><span class="hud-label">Foe</span><span id="hud-score-opp">0</span></div>
@@ -61,6 +63,7 @@ export class UIController {
     this.el = {
       gold: document.getElementById('hud-gold')!,
       food: document.getElementById('hud-food')!,
+      straw: document.getElementById('hud-straw')!,
       timer: document.getElementById('hud-timer')!,
       scoreYou: document.getElementById('hud-score-you')!,
       scoreOpp: document.getElementById('hud-score-opp')!,
@@ -120,6 +123,7 @@ export class UIController {
     const opp = this.state.players[this.state.opponentOf(HUMAN)];
     this.el.gold.textContent = Math.floor(you.gold).toString();
     this.el.food.textContent = Math.floor(you.food).toString();
+    this.el.straw.textContent = Math.floor(you.straw).toString();
     this.el.scoreYou.textContent = you.score.toFixed(2);
     this.el.scoreOpp.textContent = opp.score.toFixed(2);
 
@@ -180,6 +184,7 @@ export class UIController {
       tileIsYours,
       Math.floor(player.gold),
       Math.floor(player.food),
+      Math.floor(player.straw),
     ]);
   }
 
@@ -430,6 +435,15 @@ export class UIController {
       p.textContent = 'Under construction…';
       this.el.panelBody.appendChild(p);
       return;
+    }
+
+    if (b.type === 'farm' && b.foodPerTick != null && b.strawPerTick != null) {
+      const p = document.createElement('p');
+      p.className = 'hint';
+      const foodSec = (b.foodTickIntervalMs ?? 5000) / 1000;
+      const strawSec = (b.strawTickIntervalMs ?? 5000) / 1000;
+      p.textContent = `+${b.foodPerTick} food / ${foodSec}s, +${b.strawPerTick} straw / ${strawSec}s`;
+      this.el.panelBody.appendChild(p);
     }
 
     if (b.type === 'barracks') {

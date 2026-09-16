@@ -3,14 +3,18 @@ import {
   BUILDINGS,
   BUILDING_DAMAGE_PER_SEC,
   CASTLE_ATTACK,
-  FARM_INCOME,
+  FARM_FOOD_INCOME,
+  FARM_STRAW_INCOME,
   INCOME_TICK_MS,
   MATCH_DURATION_MS,
+  MIN_BUILD_TIME_MS,
   PILLAGE_PER_SEC,
+  REBUILD_TIME_DISCOUNT_MS,
   REPAIR_HP_PER_SEC,
   SCORE,
   STARTING_FOOD,
   STARTING_GOLD,
+  STARTING_STRAW,
   TERRAIN,
   TROOPS,
 } from './balance';
@@ -47,8 +51,8 @@ export class GameState {
     const castle1 = this.spawnBuilding(1, 'castle', map.p1Castle, true);
     const castle2 = this.spawnBuilding(2, 'castle', map.p2Castle, true);
     this.players = {
-      1: { id: 1, gold: STARTING_GOLD, food: STARTING_FOOD, score: 0, castleId: castle1.id },
-      2: { id: 2, gold: STARTING_GOLD, food: STARTING_FOOD, score: 0, castleId: castle2.id },
+      1: { id: 1, gold: STARTING_GOLD, food: STARTING_FOOD, straw: STARTING_STRAW, score: 0, castleId: castle1.id },
+      2: { id: 2, gold: STARTING_GOLD, food: STARTING_FOOD, straw: STARTING_STRAW, score: 0, castleId: castle2.id },
     };
   }
 
@@ -147,8 +151,16 @@ export class GameState {
       return { ok: false, reason: 'Not enough resources' };
     player.gold -= def.goldCost;
     player.food -= def.foodCost;
-    this.spawnBuilding(owner, type, tile, false);
+    this.spawnBuilding(owner, type, tile, false, this.buildTimeFor(owner, type));
     return { ok: true };
+  }
+
+  /** Rebuilding a type of which every prior instance was destroyed is faster than building it fresh. */
+  private buildTimeFor(owner: PlayerId, type: BuildingType): number {
+    const priors = [...this.buildings.values()].filter((b) => b.ownerId === owner && b.type === type);
+    const isRebuild = priors.length > 0 && priors.every((b) => b.state === 'destroyed');
+    const base = BUILDINGS[type].buildTimeMs;
+    return isRebuild ? Math.max(MIN_BUILD_TIME_MS, base - REBUILD_TIME_DISCOUNT_MS) : base;
   }
 
   issueRepair(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
@@ -281,8 +293,9 @@ export class GameState {
 
   // ---------- internal helpers ----------
 
-  private spawnBuilding(owner: PlayerId, type: BuildingType, tile: Offset, instant: boolean): Building {
+  private spawnBuilding(owner: PlayerId, type: BuildingType, tile: Offset, instant: boolean, buildTimeMs?: number): Building {
     const def = BUILDINGS[type];
+    const totalMs = buildTimeMs ?? def.buildTimeMs;
     const b: Building = {
       id: genId('b'),
       ownerId: owner,
@@ -291,18 +304,22 @@ export class GameState {
       hp: instant ? def.maxHp : Math.max(1, Math.round(def.maxHp * 0.15)),
       maxHp: def.maxHp,
       state: instant ? 'active' : 'constructing',
-      buildRemainingMs: instant ? 0 : def.buildTimeMs,
-      buildTotalMs: def.buildTimeMs,
+      buildRemainingMs: instant ? 0 : totalMs,
+      buildTotalMs: totalMs,
       training: null,
       repairing: false,
       pillagedBy: null,
     };
     if (type === 'farm') {
       const nearWater = neighborsOf(tile).some((n) => this.tiles.get(key(n))?.terrain === 'river');
-      const rate = nearWater ? FARM_INCOME.waterAdjacent : FARM_INCOME.base;
-      b.foodPerTick = rate.amount;
-      b.foodTickIntervalMs = rate.intervalMs;
+      const foodRate = nearWater ? FARM_FOOD_INCOME.waterAdjacent : FARM_FOOD_INCOME.base;
+      const strawRate = nearWater ? FARM_STRAW_INCOME.waterAdjacent : FARM_STRAW_INCOME.base;
+      b.foodPerTick = foodRate.amount;
+      b.foodTickIntervalMs = foodRate.intervalMs;
       b.foodTickAccumMs = 0;
+      b.strawPerTick = strawRate.amount;
+      b.strawTickIntervalMs = strawRate.intervalMs;
+      b.strawTickAccumMs = 0;
     }
     if (type === 'castle') {
       b.attackCooldownMs = 0;
@@ -395,15 +412,25 @@ export class GameState {
       }
     }
 
-    // Each farm generates food on its own schedule, since a water-adjacent
-    // farm ticks faster than the shared 5s cadence.
+    // Each farm generates food and straw on its own schedule, since a
+    // water-adjacent farm's food ticks faster than the shared 5s cadence.
     for (const b of this.buildings.values()) {
-      if (b.type !== 'farm' || b.state !== 'active' || b.foodPerTick == null) continue;
-      const interval = b.foodTickIntervalMs ?? INCOME_TICK_MS;
-      b.foodTickAccumMs = (b.foodTickAccumMs ?? 0) + dtMs;
-      while (b.foodTickAccumMs >= interval) {
-        b.foodTickAccumMs -= interval;
-        this.players[b.ownerId].food += b.foodPerTick;
+      if (b.type !== 'farm' || b.state !== 'active') continue;
+      if (b.foodPerTick != null) {
+        const interval = b.foodTickIntervalMs ?? INCOME_TICK_MS;
+        b.foodTickAccumMs = (b.foodTickAccumMs ?? 0) + dtMs;
+        while (b.foodTickAccumMs >= interval) {
+          b.foodTickAccumMs -= interval;
+          this.players[b.ownerId].food += b.foodPerTick;
+        }
+      }
+      if (b.strawPerTick != null) {
+        const interval = b.strawTickIntervalMs ?? INCOME_TICK_MS;
+        b.strawTickAccumMs = (b.strawTickAccumMs ?? 0) + dtMs;
+        while (b.strawTickAccumMs >= interval) {
+          b.strawTickAccumMs -= interval;
+          this.players[b.ownerId].straw += b.strawPerTick;
+        }
       }
     }
   }
@@ -417,13 +444,12 @@ export class GameState {
       if (b.buildRemainingMs <= 0) {
         b.state = 'active';
         b.hp = b.maxHp;
-        // Only the first standing building of a type scores -- extra copies
-        // while one is already up don't, but replacing one that was fully
-        // destroyed does (no other active one exists at that moment either).
-        const hasOtherActive = [...this.buildings.values()].some(
-          (other) => other.id !== b.id && other.ownerId === b.ownerId && other.type === b.type && other.state === 'active'
+        // Only ever scores on a building type's true first-ever completion --
+        // not extra copies, and not rebuilding one that was destroyed.
+        const hasAnyPriorOfType = [...this.buildings.values()].some(
+          (other) => other.id !== b.id && other.ownerId === b.ownerId && other.type === b.type
         );
-        if (!hasOtherActive) this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
+        if (!hasAnyPriorOfType) this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
       }
     }
   }

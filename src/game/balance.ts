@@ -59,7 +59,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     name: 'Farm',
     goldCost: 50,
     foodCost: 0,
-    buildTimeMs: 6000,
+    buildTimeMs: 5000,
     maxHp: 15,
     allowedTerrain: ['plains'],
     unlocks: ['barracks'],
@@ -68,7 +68,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     name: 'Barracks',
     goldCost: 90,
     foodCost: 30,
-    buildTimeMs: 9000,
+    buildTimeMs: 8000,
     maxHp: 25,
     allowedTerrain: ['plains', 'hills'],
     goldUpkeepPer5s: -2,
@@ -76,10 +76,18 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   },
 };
 
-/** Farm food income: the base rate, or the boosted rate for a plains farm built next to a river/lake tile. */
-export const FARM_INCOME = {
+/** Rebuilding a fully-destroyed building type is faster than building it fresh. */
+export const REBUILD_TIME_DISCOUNT_MS = 3000;
+export const MIN_BUILD_TIME_MS = 1000;
+
+/** Farm income: the base rate, or the boosted rate for a plains farm built next to a river/lake tile. */
+export const FARM_FOOD_INCOME = {
   base: { amount: 2, intervalMs: 5000 },
-  waterAdjacent: { amount: 3, intervalMs: 2500 },
+  waterAdjacent: { amount: 3, intervalMs: 2000 },
+};
+export const FARM_STRAW_INCOME = {
+  base: { amount: 5, intervalMs: 5000 },
+  waterAdjacent: { amount: 8, intervalMs: 5000 },
 };
 
 export type TroopType = 'swordsman';
@@ -104,7 +112,7 @@ export const TROOPS: Record<TroopType, TroopDef> = {
     name: 'Swordsman',
     goldCost: 30,
     foodCost: 12,
-    trainTimeMs: 8000,
+    trainTimeMs: 4000,
     maxHp: 20,
     attack: 15,
     defense: 10,
@@ -124,6 +132,7 @@ export const CASTLE_ATTACK = {
 
 export const STARTING_GOLD = 60;
 export const STARTING_FOOD = 0;
+export const STARTING_STRAW = 0;
 export const INCOME_TICK_MS = 5000;
 export const BASE_GOLD_PER_TICK = 5;
 
