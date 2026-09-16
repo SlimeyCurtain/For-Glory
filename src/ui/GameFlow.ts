@@ -186,11 +186,11 @@ export class GameFlow {
       rightEl.classList.add('grey');
       this.victoryText.textContent = 'DRAW';
       this.victoryText.classList.add('grey');
+      playDefeatHorn();
     } else {
       const winnerEl = state.winner === leftPlayerId ? leftEl : rightEl;
       winnerEl.classList.add('gold');
-      if (state.winner === 1) playFanfare();
-      else playDefeatHorn();
+      playFanfare();
       const sideWord = state.winner === 1 ? 'BLUE' : 'RED';
       this.victoryText.textContent = `${sideWord} SETTLEMENT HAS WON THE GAME!`;
       this.victoryText.classList.add(state.winner === 1 ? 'blue' : 'red');
