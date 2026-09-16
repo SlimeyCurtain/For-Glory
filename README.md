@@ -95,13 +95,18 @@ double-checks that a ground path exists between the two castles and
 clears the nearest obstacle if a particular random map would otherwise
 seal one side off.
 
-## Mobile
+## Mobile / desktop
 
 The game renders at a fixed landscape aspect ratio and is scaled
-(never stretched) to fit the viewport, the same way in a phone browser
-as on a desktop. In portrait orientation it shows a "rotate your
-device" prompt instead of trying to squeeze the map into a narrow
-screen.
+(never stretched) to fit its viewport. It auto-detects touch/coarse
+pointer input to guess mobile vs. desktop on first load, and a small
+corner button (bottom-right, labeled with whichever mode you'd switch
+*to*) lets you override that — the choice persists across reloads.
+**Mobile mode** goes edge-to-edge like a phone app and shows a "rotate
+your device" prompt in portrait. **Desktop mode** presents the game as
+a centered, shadowed panel against a dark background instead of
+bleeding to the browser window's edges, and never nags about
+orientation (nobody rotates a monitor).
 
 ## Not yet built (intentionally out of scope for this pass)
 

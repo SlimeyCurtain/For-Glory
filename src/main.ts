@@ -5,6 +5,12 @@ import { MainScene, MARGIN } from './scenes/MainScene';
 import { UIController } from './ui/UIController';
 import { MAP_COLS, MAP_ROWS } from './game/mapGen';
 import { HEX_SIZE, offsetToPixel } from './game/hex';
+import { applyDisplayMode, detectInitialMode, onDisplayModeToggle } from './platformMode';
+
+// Apply the mobile/desktop body class before Phaser ever measures
+// #game-container, so the very first frame is already sized correctly.
+const initialDisplayMode = detectInitialMode();
+applyDisplayMode(initialDisplayMode);
 
 const state = new GameState();
 const ai = new AIController(state, 2);
@@ -60,6 +66,19 @@ game.events.once(Phaser.Core.Events.READY, syncUiRootToCanvas);
 game.scale.on(Phaser.Scale.Events.RESIZE, syncUiRootToCanvas);
 window.addEventListener('resize', syncUiRootToCanvas);
 window.addEventListener('orientationchange', () => window.setTimeout(syncUiRootToCanvas, 50));
+
+onDisplayModeToggle(initialDisplayMode, () => {
+  // The mode switch just changed #game-container's CSS size, but that alone
+  // doesn't reliably make Phaser re-measure its parent -- dispatching a
+  // resize event drives it through the same path a real window resize
+  // already uses. Deferred a frame so the new layout has actually painted
+  // before anything measures it.
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event('resize'));
+    game.scale.refresh();
+    syncUiRootToCanvas();
+  });
+});
 
 if (import.meta.env.DEV) {
   (window as unknown as { __state: GameState }).__state = state;

@@ -24,6 +24,26 @@ html, body {
   inset: 0;
 }
 
+/* Desktop mode: instead of bleeding edge-to-edge like a mobile app, the
+   game sits as a framed panel centered on the page -- comfortable on a
+   large monitor instead of stretched or awkwardly small in a corner. */
+body.desktop-mode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at center, #1b2130 0%, #0b0d11 72%);
+}
+
+body.desktop-mode #app {
+  position: relative;
+  inset: auto;
+  width: min(90vw, 1500px);
+  height: min(88vh, 760px);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.07);
+}
+
 #game-container {
   position: absolute;
   inset: 0;
@@ -60,14 +80,37 @@ html, body {
 }
 
 /* This is a landscape-only game. Below a certain width there's no sane way
-   to fit the map + UI, so ask the player to rotate instead of squeezing it. */
+   to fit the map + UI, so ask a mobile player to rotate instead of
+   squeezing it. Desktop mode skips this entirely -- a resizable browser
+   window going narrow/tall isn't the same situation as a phone held
+   upright, and nobody can "rotate" a monitor. */
 @media (orientation: portrait) {
-  #app {
+  body.mobile-mode #app {
     display: none;
   }
-  #rotate-overlay {
+  body.mobile-mode #rotate-overlay {
     display: flex;
   }
+}
+
+#platform-toggle {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 3000;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(15, 18, 24, 0.8);
+  color: #eef1f5;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+#platform-toggle:hover {
+  background: rgba(15, 18, 24, 0.95);
 }
 
 #hud {
