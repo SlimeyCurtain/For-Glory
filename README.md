@@ -132,8 +132,8 @@ the AI's is always red regardless of which side you land on.
   extends your territory, a cheap flat-cost Road is a much better tool
   than an escalating Farm trail for reaching a distant resource in a
   favorable direction.
-- **Bridges** (same cost and build time as a Road: 2 stone + 4 wood, 4s)
-  go up on a river/lake tile itself and let troops cross water there —
+- **Bridges** (4 stone + 2 wood, 10s to build) go up on a river/lake
+  tile itself and let troops cross water there —
   they don't reduce a river's own movement cost the way a Road reduces
   land terrain, so crossing one costs just the usual +1/8 building tax
   on top of a neutral base. Unlike a Road, a Bridge scores normally for
@@ -228,7 +228,7 @@ the AI's is always red regardless of which side you land on.
 | Fishing Boat | River/lake tile adjacent to the Fisher's Hut that builds it (not in the general build menu) | 2 gold + 8 wood | 8 hp / 2 def | 2 food / 3s | Upkeep -2 wood; also feeds its parent Fisher's Hut's gold bonus (see above) |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
 | Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |
-| Bridge | River/lake | 4 wood + 2 stone | No defense stat — destructible only by a siege unit's own to-hit roll (none exist yet, so effectively indestructible today) | none | Lets troops cross the water tile it's on; no speed buff of its own, just the usual building tax; scores normally for its first construction, unlike a Road |
+| Bridge | River/lake | 4 stone + 2 wood | No defense stat — destructible only by a siege unit's own to-hit roll (none exist yet, so effectively indestructible today) | none | Lets troops cross the water tile it's on; no speed buff of its own, just the usual building tax; scores normally for its first construction, unlike a Road |
 
 ### Troops
 

@@ -229,9 +229,9 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     name: 'Bridge',
     goldCost: 0,
     foodCost: 0,
-    woodCost: 4,
-    stoneCost: 2,
-    buildTimeMs: 4000,
+    woodCost: 2,
+    stoneCost: 4,
+    buildTimeMs: 10000,
     // Bridges have no defense stat of their own -- the user's spec ties
     // destruction entirely to a percentage chance rolled by the attacking
     // siege unit's type (e.g. "a cannon has a 78.3% chance..."), which is
