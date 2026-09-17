@@ -61,7 +61,17 @@ export const BASE_GOLD_PER_TICK = 5;
 
 // ---------- buildings ----------
 
-export type BuildingType = 'castle' | 'farm' | 'barracks' | 'lumberMill' | 'quarry' | 'fishersHut' | 'house' | 'road';
+export type BuildingType =
+  | 'castle'
+  | 'farm'
+  | 'barracks'
+  | 'lumberMill'
+  | 'quarry'
+  | 'fishersHut'
+  | 'house'
+  | 'road'
+  | 'fishingBoat'
+  | 'bridge';
 
 export interface BuildingDef {
   name: string;
@@ -91,6 +101,8 @@ export interface BuildingDef {
   specialTrait?: string;
   /** Can never be targeted by an attack order, siege or otherwise (currently: the Road). */
   unattackable?: boolean;
+  /** Can only be targeted by a troop with isSiege (currently: the Bridge). No troop is siege yet, so this is functionally unattackable today -- future-proofing for siege units. */
+  requiresSiegeToAttack?: boolean;
   /** Skips the usual "first-ever construction of this type" score (currently: the Road). */
   noFirstConstructionScore?: boolean;
 }
@@ -165,7 +177,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     allowedTerrain: ['plains', 'hills'],
     requiresAdjacentTerrain: ['river'],
     upkeep: { wood: -4, straw: -4 },
-    specialTrait: '+2 Food to any directly adjacent Farm.',
+    specialTrait: 'Build a Fishing Boat on any adjacent river tile from this panel. +2 Gold production per adjacent active Fishing Boat.',
   },
   house: {
     name: 'House',
@@ -196,6 +208,41 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     noFirstConstructionScore: true,
     specialTrait:
       'Halves whatever movement penalty its terrain would otherwise cost, and boosts a Plains speed buff by half again. Applies to any troop crossing it, friendly or enemy. Nothing else may be built on a Road tile.',
+  },
+  // Not offered in the general build menu -- only placeable from an owned,
+  // active Fisher's Hut's own panel, on a river tile adjacent to it (see
+  // GameState.issueBuildFishingBoat). maxHp/defense are our own placeholders,
+  // since the user's spec didn't give this building combat stats.
+  fishingBoat: {
+    name: 'Fishing Boat',
+    goldCost: 2,
+    foodCost: 0,
+    woodCost: 8,
+    buildTimeMs: 4000,
+    maxHp: 8,
+    defense: 2,
+    allowedTerrain: ['river'],
+    upkeep: { wood: -2 },
+    specialTrait: '+2 Food/3s. Also gives its parent Fisher\'s Hut +2 Gold production per adjacent active Fishing Boat.',
+  },
+  bridge: {
+    name: 'Bridge',
+    goldCost: 0,
+    foodCost: 0,
+    woodCost: 4,
+    stoneCost: 2,
+    buildTimeMs: 4000,
+    // Bridges have no defense stat of their own -- the user's spec ties
+    // destruction entirely to a percentage chance rolled by the attacking
+    // siege unit's type (e.g. "a cannon has a 78.3% chance..."), which is
+    // explicitly out of scope for now since no siege unit exists yet. HP/
+    // defense are unreachable placeholders until that combat model exists.
+    maxHp: 10,
+    defense: 0,
+    allowedTerrain: ['river'],
+    requiresSiegeToAttack: true,
+    specialTrait:
+      'Acts like a Road (lets troops cross), but grants no movement buff of its own -- it only allows the crossing. Unlike a Road, its first construction scores normally, and it can be targeted by siege units (none exist yet).',
   },
 };
 
@@ -239,7 +286,10 @@ export const QUARRY_STONE_PER_MOUNTAIN = 1;
 export const QUARRY_STONE_INTERVAL_MS = 8000;
 
 export const FISHERS_HUT_GOLD = { amount: 3, intervalMs: 5000 };
-export const FISHERS_HUT_FARM_FOOD_BONUS = 2;
+
+export const FISHING_BOAT_FOOD = { amount: 2, intervalMs: 3000 };
+/** Each adjacent active Fishing Boat adds this much to its parent Fisher's Hut's gold-per-tick. */
+export const FISHING_BOAT_HUT_GOLD_BONUS = 2;
 
 export const HOUSE_GOLD_BASE = { amount: 1, intervalMs: 5000 };
 export const HOUSE_FOREST_WOOD = { amount: 1, intervalMs: 6000 };

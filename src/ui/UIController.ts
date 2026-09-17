@@ -1,4 +1,4 @@
-import { BUILDINGS, CLEAR_RUBBLE_COST, CLEAR_RUBBLE_COST_ENEMY, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
+import { BUILDINGS, CLEAR_RUBBLE_COST, CLEAR_RUBBLE_COST_ENEMY, FISHING_BOAT_HUT_GOLD_BONUS, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
 import type { ResourceKey, TerrainType, TroopType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
@@ -216,6 +216,7 @@ export class UIController {
       b?.state === 'destroyed' && b.ownerId !== HUMAN
         ? this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1)
         : null;
+    const eligibleBoatTiles = b?.type === 'fishersHut' ? this.state.eligibleFishingBoatTiles(b).length : null;
     return JSON.stringify([
       this.mode,
       this.tracedPath.length,
@@ -225,6 +226,7 @@ export class UIController {
       b?.training ? Math.ceil(b.training.remainingMs / 500) : null,
       b?.repairing,
       hasAdjacentTroop,
+      eligibleBoatTiles,
       t ? Math.ceil(t.hp) : null,
       t?.order.kind,
       threats,
@@ -547,9 +549,12 @@ export class UIController {
     }
 
     if (b.production.length > 0) {
+      const boatBonus = b.type === 'fishersHut' ? this.state.adjacentActiveFishingBoatCount(b) * FISHING_BOAT_HUT_GOLD_BONUS : 0;
       const p = document.createElement('p');
       p.className = 'hint';
-      p.textContent = b.production.map((feed) => `+${feed.amount} ${feed.resource} / ${feed.intervalMs / 1000}s`).join(', ');
+      p.textContent = b.production
+        .map((feed) => `+${feed.amount + (feed.resource === 'gold' ? boatBonus : 0)} ${feed.resource} / ${feed.intervalMs / 1000}s`)
+        .join(', ');
       this.el.panelBody.appendChild(p);
     }
 
@@ -580,6 +585,26 @@ export class UIController {
           btn.textContent = `Train ${def.name} — ${formatCost(cost)}`;
           btn.addEventListener('click', () => {
             const res = this.state.issueTrain(HUMAN, b.id, type);
+            if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+          });
+          this.el.panelBody.appendChild(btn);
+        }
+      }
+    }
+
+    if (b.type === 'fishersHut') {
+      const eligible = this.state.eligibleFishingBoatTiles(b);
+      if (eligible.length > 0) {
+        const def = BUILDINGS.fishingBoat;
+        const cost: Partial<Record<ResourceKey, number>> = { gold: def.goldCost, wood: def.woodCost };
+        const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
+        for (const tile of eligible) {
+          const btn = document.createElement('button');
+          btn.className = 'action-btn';
+          btn.disabled = !affordable;
+          btn.textContent = `Build Fishing Boat — ${formatCost(cost)}`;
+          btn.addEventListener('click', () => {
+            const res = this.state.issueBuildFishingBoat(HUMAN, b.id, tile);
             if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
           });
           this.el.panelBody.appendChild(btn);

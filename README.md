@@ -124,6 +124,14 @@ the AI's is always red regardless of which side you land on.
   extends your territory, a cheap flat-cost Road is a much better tool
   than an escalating Farm trail for reaching a distant resource in a
   favorable direction.
+- **Bridges** (same cost and build time as a Road: 2 stone + 4 wood, 4s)
+  go up on a river/lake tile itself and let troops cross water there —
+  they don't reduce a river's own movement cost the way a Road reduces
+  land terrain, so crossing one costs just the usual +1/8 building tax
+  on top of a neutral base. Unlike a Road, a Bridge scores normally for
+  its first construction, and it *can* be targeted — but only by a
+  siege unit, which don't exist yet, so every current troop is refused
+  outright with "requires siege units to attack."
 - **Defend** doubles a troop's defense and roots it in place until you
   move it, attack, or it dies — it survives a combat engagement intact
   instead of being overridden, and you can switch a troop into it
@@ -208,9 +216,11 @@ the AI's is always red regardless of which side you land on.
 | Barracks | Plains/Hills | 25 gold + 25 straw | 20 hp / 10 def | Trains troops | Only one active/constructing at a time; trains 3s faster next to a Farm; counters a landed hit for 4 damage |
 | Lumber Mill | Plains/Hills, adjacent to Forest | 30 gold + 35 straw | 20 hp / 3 def | 2 wood per adjacent Forest tile / 6s | Unlocks the Archer once active |
 | Quarry | Any Hills tile, or a Plains tile adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
-| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | +2 food to any directly adjacent Farm |
+| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | Build Fishing Boats (from its own panel) on any adjacent river/lake tile; +2 gold production per adjacent active boat |
+| Fishing Boat | River/lake tile adjacent to the Fisher's Hut that builds it (not in the general build menu) | 2 gold + 8 wood | 8 hp / 2 def | 2 food / 3s | Upkeep -2 wood; also feeds its parent Fisher's Hut's gold bonus (see above) |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
 | Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |
+| Bridge | River/lake | 4 wood + 2 stone | No defense stat — destructible only by a siege unit's own to-hit roll (none exist yet, so effectively indestructible today) | none | Lets troops cross the water tile it's on; no speed buff of its own, just the usual building tax; scores normally for its first construction, unlike a Road |
 
 ### Troops
 
@@ -270,9 +280,13 @@ somewhere the player can't see or interact with it.
 
 ## Not yet built (intentionally out of scope for this pass)
 
-- Real networked 1v1 (currently local + scripted AI)
-- Siege units (the only thing that will ever be able to target a castle directly)
-- Boats and bridges for crossing rivers
+- Real networked 1v1 (currently local + scripted AI); an AFK player's
+  side just keeps idling rather than continuing to act on its own
+- Siege units, including the castle (only a siege unit will ever be
+  able to target it) and the Bridge (its `requiresSiegeToAttack` flag
+  and a per-siege-unit-type destruction-chance roll are wired up and
+  ready, but with no siege unit yet defined, a Bridge is functionally
+  indestructible today)
 - Castle attack upgrades (mentioned as a future hook, not built yet)
 - A real balancing pass on the current buildings/troops/economy
 

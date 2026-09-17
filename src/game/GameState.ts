@@ -8,8 +8,9 @@ import {
   CLEAR_RUBBLE_COST_ENEMY,
   FARM_FOOD,
   FARM_STRAW,
-  FISHERS_HUT_FARM_FOOD_BONUS,
   FISHERS_HUT_GOLD,
+  FISHING_BOAT_FOOD,
+  FISHING_BOAT_HUT_GOLD_BONUS,
   HOUSE_FOREST_WOOD,
   HOUSE_GOLD_BASE,
   HOUSE_HILLS_ENEMY_DEBUFF_MULT,
@@ -143,8 +144,10 @@ export class GameState {
   canBuildAt(owner: PlayerId, tile: Offset): { ok: boolean; reason?: string } {
     const t = this.tiles.get(key(tile));
     if (!t) return { ok: false, reason: 'Invalid tile' };
-    if (t.terrain === 'mountains' || t.terrain === 'river')
-      return { ok: false, reason: 'Cannot build on this terrain' };
+    // Mountains take no building at all; river is now valid ground for a
+    // Bridge specifically, so that terrain-vs-type match is left entirely to
+    // availableBuildingsFor's per-type allowedTerrain check below.
+    if (t.terrain === 'mountains') return { ok: false, reason: 'Cannot build on this terrain' };
     const occupant = this.tileOccupiedByBuilding(tile);
     if (occupant) {
       return occupant.state === 'destroyed'
@@ -160,7 +163,7 @@ export class GameState {
     const t = this.tiles.get(key(tile));
     if (!t) return [];
     const hasFarm = this.buildingsOf(owner).some((b) => b.type === 'farm' && b.state === 'active');
-    const candidates: BuildingType[] = ['farm', 'lumberMill', 'quarry', 'fishersHut', 'house', 'road'];
+    const candidates: BuildingType[] = ['farm', 'lumberMill', 'quarry', 'fishersHut', 'house', 'road', 'bridge'];
     if (hasFarm) candidates.push('barracks');
 
     return candidates.filter((type) => {
@@ -277,8 +280,8 @@ export class GameState {
       for (const feed of b.production) {
         if (feed.resource !== resource) continue;
         let amount = feed.amount;
-        if (b.type === 'farm' && feed.resource === 'food' && this.hasAdjacentActiveFishersHut(b)) {
-          amount += FISHERS_HUT_FARM_FOOD_BONUS;
+        if (b.type === 'fishersHut' && feed.resource === 'gold') {
+          amount += this.adjacentActiveFishingBoatCount(b) * FISHING_BOAT_HUT_GOLD_BONUS;
         }
         productionPerSec += amount / (feed.intervalMs / 1000);
       }
@@ -288,8 +291,11 @@ export class GameState {
 
   attackableBuildings(attacker: PlayerId): Building[] {
     const opp = this.opponentOf(attacker);
-    // castle excluded: only siege units may target it (not yet implemented). Anything unattackable (the Road) is excluded too.
-    return this.buildingsOf(opp).filter((b) => b.type !== 'castle' && !BUILDINGS[b.type].unattackable);
+    const hasSiege = this.troopsOf(attacker).some((t) => TROOPS[t.type].isSiege);
+    // castle excluded: only siege units may target it (not yet implemented). Anything unattackable (the Road) is excluded too, as is anything requiring siege (the Bridge) when this player has none.
+    return this.buildingsOf(opp).filter(
+      (b) => b.type !== 'castle' && !BUILDINGS[b.type].unattackable && (!BUILDINGS[b.type].requiresSiegeToAttack || hasSiege)
+    );
   }
 
   /** Enemy troops currently moving toward / pillaging one of `owner`'s buildings. */
@@ -325,6 +331,38 @@ export class GameState {
       player[resource] -= cost[resource] ?? 0;
     }
     this.spawnBuilding(owner, type, tile, false, buildTimeMs, cost, !!credit);
+    return { ok: true };
+  }
+
+  /**
+   * River tiles adjacent to this Fisher's Hut with nothing standing on them
+   * -- a Fishing Boat can only go up on one of these, and only from this
+   * specific hut's own panel (not the general build menu).
+   */
+  eligibleFishingBoatTiles(hut: Building): Offset[] {
+    return neighborsOf(hut.tile).filter((n) => {
+      const t = this.tiles.get(key(n));
+      return !!t && t.terrain === 'river' && !this.tileOccupiedByBuilding(n);
+    });
+  }
+
+  issueBuildFishingBoat(owner: PlayerId, fishersHutId: string, tile: Offset): { ok: boolean; reason?: string } {
+    const hut = this.buildings.get(fishersHutId);
+    if (!hut || hut.ownerId !== owner || hut.type !== 'fishersHut' || hut.state !== 'active')
+      return { ok: false, reason: "Invalid Fisher's Hut" };
+    if (!this.eligibleFishingBoatTiles(hut).some((t) => t.col === tile.col && t.row === tile.row))
+      return { ok: false, reason: 'Must be an empty river tile adjacent to this Fisher\'s Hut' };
+
+    const def = BUILDINGS.fishingBoat;
+    const cost: Partial<Record<ResourceKey, number>> = { gold: def.goldCost, wood: def.woodCost };
+    const player = this.players[owner];
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      if (player[resource] < (cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
+    }
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      player[resource] -= cost[resource] ?? 0;
+    }
+    this.spawnBuilding(owner, 'fishingBoat', tile, false, def.buildTimeMs, cost, false);
     return { ok: true };
   }
 
@@ -450,6 +488,8 @@ export class GameState {
     if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
     if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
     if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
+    if (BUILDINGS[target.type].requiresSiegeToAttack && !TROOPS[troop.type].isSiege)
+      return { ok: false, reason: `${BUILDINGS[target.type].name} requires siege units to attack` };
     if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
     if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
       return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
@@ -521,6 +561,8 @@ export class GameState {
       if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
       if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
       if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
+      if (BUILDINGS[target.type].requiresSiegeToAttack && !TROOPS[troop.type].isSiege)
+        return { ok: false, reason: `${BUILDINGS[target.type].name} requires siege units to attack` };
       if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
       if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
         return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
@@ -613,6 +655,8 @@ export class GameState {
       b.production.push(mkFeed('stone', mountainCount * QUARRY_STONE_PER_MOUNTAIN, QUARRY_STONE_INTERVAL_MS));
     } else if (type === 'fishersHut') {
       b.production.push(mkFeed('gold', FISHERS_HUT_GOLD.amount, FISHERS_HUT_GOLD.intervalMs));
+    } else if (type === 'fishingBoat') {
+      b.production.push(mkFeed('food', FISHING_BOAT_FOOD.amount, FISHING_BOAT_FOOD.intervalMs));
     } else if (type === 'house') {
       b.production.push(mkFeed('gold', HOUSE_GOLD_BASE.amount, HOUSE_GOLD_BASE.intervalMs));
       const siteTerrain = this.tiles.get(key(tile))?.terrain;
@@ -652,9 +696,16 @@ export class GameState {
     return {
       canCrossMountains: def.canCrossMountains,
       canCrossRiver: false,
+      canCrossRiverAt: (o) => this.hasActiveBridge(o),
       blocked,
       speedMultiplierFor: (o) => this.terrainSpeedMultiplierFor(troop.ownerId, o),
     };
+  }
+
+  /** An active Bridge on `tile` lets any troop (friendly or enemy) cross the river there. */
+  private hasActiveBridge(tile: Offset): boolean {
+    const occ = this.tileOccupiedByBuilding(tile);
+    return occ?.type === 'bridge' && occ.state === 'active';
   }
 
   /**
@@ -672,10 +723,18 @@ export class GameState {
   private terrainSpeedMultiplierFor(troopOwnerId: PlayerId, tile: Offset): number {
     const terrain = this.terrainAt(tile);
     if (!terrain) return 1;
-    const baseMult = TERRAIN[terrain].moveTimeMult;
     const occupant = this.tileOccupiedByBuilding(tile);
     const activeOccupant = occupant?.state === 'active' ? occupant : null;
 
+    if (activeOccupant?.type === 'bridge') {
+      // River's own moveTimeMult is Infinity, which tileCrossMs neutralizes
+      // to a plain 1x base the instant an active Bridge allows the crossing
+      // (see pathfinding.ts) -- a Bridge grants no speed buff of its own, so
+      // the only modifier left to apply here is the universal building tax.
+      return BUILDING_MOVE_PENALTY_MULT;
+    }
+
+    const baseMult = TERRAIN[terrain].moveTimeMult;
     let effectiveMult = baseMult;
     if (activeOccupant?.type === 'road') {
       effectiveMult = roadAdjustedMoveMult(baseMult);
@@ -718,7 +777,7 @@ export class GameState {
     const def = TROOPS[troop.type];
     const terrain = TERRAIN[t.terrain];
     if (terrain.impassableForGroundTroops && !def.canCrossMountains) return false;
-    if (terrain.requiresBoatOrBridge) return false;
+    if (terrain.requiresBoatOrBridge && !this.hasActiveBridge(tile)) return false;
     const occupant = this.tileOccupiedByBuilding(tile);
     if (occupant?.state === 'destroyed') return false;
     return true;
@@ -831,8 +890,8 @@ export class GameState {
             continue;
           }
           let amount = feed.amount;
-          if (b.type === 'farm' && feed.resource === 'food' && this.hasAdjacentActiveFishersHut(b)) {
-            amount += FISHERS_HUT_FARM_FOOD_BONUS;
+          if (b.type === 'fishersHut' && feed.resource === 'gold') {
+            amount += this.adjacentActiveFishingBoatCount(b) * FISHING_BOAT_HUT_GOLD_BONUS;
           }
           this.players[b.ownerId][feed.resource] += amount;
         }
@@ -840,11 +899,12 @@ export class GameState {
     }
   }
 
-  private hasAdjacentActiveFishersHut(farm: Building): boolean {
-    return neighborsOf(farm.tile).some((n) => {
+  /** Number of active Fishing Boats standing on tiles adjacent to this Fisher's Hut -- each contributes its own gold bonus. Public: the UI displays the live bonus in the hut's info panel. */
+  adjacentActiveFishingBoatCount(hut: Building): number {
+    return neighborsOf(hut.tile).filter((n) => {
       const nb = this.tileOccupiedByBuilding(n);
-      return nb?.type === 'fishersHut' && nb.state === 'active' && nb.ownerId === farm.ownerId;
-    });
+      return nb?.type === 'fishingBoat' && nb.state === 'active' && nb.ownerId === hut.ownerId;
+    }).length;
   }
 
   private tickConstruction(dtMs: number) {

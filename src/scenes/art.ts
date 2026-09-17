@@ -198,6 +198,10 @@ export function drawBuildingIcon(g: G, type: BuildingType, x: number, y: number,
       return drawHouseIcon(g, x, y, ownerColor);
     case 'road':
       return drawRoadIcon(g, x, y, ownerColor);
+    case 'fishingBoat':
+      return drawFishingBoatIcon(g, x, y, ownerColor);
+    case 'bridge':
+      return drawBridgeIcon(g, x, y, ownerColor);
   }
 }
 
@@ -489,6 +493,50 @@ function drawRoadIcon(g: G, x: number, y: number, ownerColor: number) {
   for (const dx of [-9, -1, 7]) {
     g.lineBetween(x + dx, y, x + dx + 4, y);
   }
+}
+
+function drawFishingBoatIcon(g: G, x: number, y: number, ownerColor: number) {
+  // a small rowboat hull sitting on the river tile's own water
+  g.fillStyle(0x6b4423, 1);
+  g.beginPath();
+  g.moveTo(x - 11, y + 2);
+  g.lineTo(x + 11, y + 2);
+  g.lineTo(x + 6, y + 8);
+  g.lineTo(x - 6, y + 8);
+  g.closePath();
+  g.fillPath();
+  g.lineStyle(1.2, shade(ownerColor, -0.2), 1);
+  g.strokeRect(x - 11, y - 1, 22, 3);
+  g.fillStyle(ownerColor, 1);
+  g.fillRect(x - 11, y - 1, 22, 3);
+
+  // mast + net, owner-colored pennant
+  g.lineStyle(1.5, 0x8a5a2a, 1);
+  g.lineBetween(x, y - 1, x, y - 10);
+  g.fillStyle(ownerColor, 1);
+  g.beginPath();
+  g.moveTo(x, y - 10);
+  g.lineTo(x + 6, y - 8);
+  g.lineTo(x, y - 6);
+  g.closePath();
+  g.fillPath();
+}
+
+function drawBridgeIcon(g: G, x: number, y: number, ownerColor: number) {
+  // planks spanning the river tile, with pilings dipping into the water below
+  g.fillStyle(0x8a5a2a, 1);
+  g.fillRect(x - 15, y - 5, 30, 10);
+  g.lineStyle(1.5, shade(ownerColor, -0.2), 1);
+  g.strokeRect(x - 15, y - 5, 30, 10);
+
+  g.lineStyle(1.2, 0x5c3a1a, 0.9);
+  for (const dx of [-10, -3, 4, 11]) {
+    g.lineBetween(x + dx, y - 5, x + dx, y + 5);
+  }
+
+  g.fillStyle(0x5c3a1a, 1);
+  g.fillRect(x - 13, y + 5, 3, 4);
+  g.fillRect(x + 10, y + 5, 3, 4);
 }
 
 // ---------- troop icons ----------

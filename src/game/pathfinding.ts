@@ -5,7 +5,9 @@ import type { TileMap } from './mapGen';
 
 export interface PathOptions {
   canCrossMountains: boolean;
-  canCrossRiver: boolean; // true if unit has boat, or a bridge exists (future feature)
+  canCrossRiver: boolean; // true if unit has a boat
+  /** True at a specific tile when an active Bridge there lets any troop cross the river. */
+  canCrossRiverAt?: (o: Offset) => boolean;
   /** tiles currently occupied by buildings/blocking troops, other than start/goal */
   blocked: Set<string>;
   /** Extra per-tile time multiplier (e.g. a House's hills effect); defaults to 1. */
@@ -17,10 +19,16 @@ export function tileCrossMs(o: Offset, tiles: TileMap, opts: PathOptions): numbe
   if (!tile) return Infinity;
   const def = TERRAIN[tile.terrain];
   if (def.impassableForGroundTroops && !opts.canCrossMountains) return Infinity;
-  if (def.requiresBoatOrBridge && !opts.canCrossRiver) return Infinity;
-  if (def.moveTimeMult === Infinity) return Infinity;
+  const bridged = opts.canCrossRiverAt ? opts.canCrossRiverAt(o) : false;
+  if (def.requiresBoatOrBridge && !opts.canCrossRiver && !bridged) return Infinity;
+  // A Bridge grants no speed buff of its own -- crossing a bridged river tile
+  // uses a neutral 1x base instead of the river's own (otherwise-infinite)
+  // moveTimeMult, leaving only whatever `speedMultiplierFor` adds on top
+  // (the universal building tax, via GameState.terrainSpeedMultiplierFor).
+  const moveTimeMult = def.moveTimeMult === Infinity && bridged ? 1 : def.moveTimeMult;
+  if (moveTimeMult === Infinity) return Infinity;
   const extra = opts.speedMultiplierFor ? opts.speedMultiplierFor(o) : 1;
-  return BASE_TILE_CROSS_MS * def.moveTimeMult * extra;
+  return BASE_TILE_CROSS_MS * moveTimeMult * extra;
 }
 
 /**
