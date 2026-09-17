@@ -34,7 +34,6 @@ const BUILD_WISHLIST: WishlistItem[] = [
   { type: 'lumberMill', cap: 2, requiresSolvency: true },
   { type: 'fishersHut', cap: 1, requiresSolvency: true }, // the AI's actual gold bottleneck -- more gold income than a Farm can ever provide
   { type: 'house', cap: 1, requiresSolvency: true },
-  { type: 'farm', cap: 3, requiresSolvency: false },
   { type: 'quarry', cap: 1, requiresSolvency: true },
 ];
 
@@ -51,7 +50,16 @@ const GROWTH_POOL: WishlistItem[] = [
   { type: 'fishersHut', cap: Infinity, requiresSolvency: true },
   { type: 'quarry', cap: Infinity, requiresSolvency: true },
   { type: 'house', cap: Infinity, requiresSolvency: true },
-  { type: 'farm', cap: Infinity, requiresSolvency: false },
+  // Deliberately no uncapped Farm entry here (see maybeBuildSurplusFarm) --
+  // an unconditional one used to be this pool's only requiresSolvency:false
+  // item, which made it the reflexive fallback the instant anything else on
+  // either list was merely blocked *this cycle*, not genuinely unsustainable
+  // -- most visibly for several cycles in a row right at the start, while
+  // the very first Farm is still under construction and hasn't produced any
+  // straw yet, which is exactly what every other early building's own
+  // solvency check is waiting on. That stacked 3-4 needless Farms (each
+  // pricier than the last) before the settlement had even fielded a single
+  // troop to justify the food.
 ];
 
 const ALL_RESOURCES: ResourceKey[] = ['gold', 'food', 'straw', 'wood', 'stone'];
@@ -140,7 +148,30 @@ export class AIController {
     // this cycle) does the AI fall through to the open-ended growth pool,
     // so early priorities are never crowded out by "just one more farm".
     if (this.tryBuildFrom(BUILD_WISHLIST)) return;
-    this.tryBuildFrom(GROWTH_POOL);
+    if (this.tryBuildFrom(GROWTH_POOL)) return;
+    this.maybeBuildSurplusFarm();
+  }
+
+  /**
+   * The one place a Farm still gets built for its own sake (food/straw),
+   * rather than as a stepping-stone toward some other terrain (see
+   * tryExpandToward) -- and only when there's an actual reason to: no Farm
+   * already on the way, and existing food income isn't comfortably ahead of
+   * what it's feeding. A Farm's gold cost escalates with every instance
+   * ever built, so reaching for "just one more" reflexively, the way an
+   * uncapped/unconditional wishlist entry used to, is a real net loss once
+   * the settlement already has more food than its army needs.
+   */
+  private maybeBuildSurplusFarm() {
+    if (this.hasAnyDeficit()) return;
+    if (this.state.buildingsOf(this.me).some((b) => b.type === 'farm' && b.state !== 'active')) return;
+    if (this.state.netResourceRatePerSec(this.me, 'food') > 0.5) return;
+    const territory = this.state.ownedTerritoryTiles(this.me);
+    const spot = territory.find(
+      (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes('farm')
+    );
+    if (!spot) return;
+    this.state.issueBuild(this.me, spot, 'farm');
   }
 
   /**
@@ -207,13 +238,15 @@ export class AIController {
    * `type` needs a tile adjacent to some terrain the settlement's current
    * territory doesn't reach yet. Find that terrain's nearest occurrence on
    * the map, then claim whichever owned-but-unbuilt tile is closest to it --
-   * a Road when one's available, since it's a flat cost with no per-instance
-   * escalation and doubles as a speed boost, unlike a Farm trail whose price
-   * climbs every time (10, 12, 16, 22, ...) and eventually stalls out before
-   * it ever reaches the resource it was walking toward. That one claim
-   * pushes territory a ring closer; repeating this over successive cycles
-   * walks the settlement toward the resource instead of leaving it
-   * permanently locked out of an entire branch of the tech tree.
+   * a Road when the AI can actually pay for one, since it's a flat cost with
+   * no per-instance escalation and doubles as a speed boost, unlike a Farm
+   * trail whose price climbs every time (10, 12, 16, 22, ...). In practice a
+   * Road needs wood + stone that don't exist yet before a Lumber Mill or
+   * Quarry does -- exactly the buildings this expansion is usually trying to
+   * reach -- so early on this always falls back to a Farm, which only costs
+   * gold. That one claim pushes territory a ring closer; repeating this over
+   * successive cycles walks the settlement toward the resource instead of
+   * leaving it permanently locked out of an entire branch of the tech tree.
    */
   private tryExpandToward(type: BuildingType): boolean {
     const reqTerrain = BUILDINGS[type].requiresAdjacentTerrain?.[0];
@@ -223,9 +256,20 @@ export class AIController {
     const claimTile = this.state.closestBuildableTerritoryTile(this.me, target);
     if (!claimTile) return false;
     const options = this.state.availableBuildingsFor(this.me, claimTile);
-    const claimType = options.includes('road') ? 'road' : options.includes('farm') ? 'farm' : options[0];
+    // Try whichever of these the AI can actually afford right now, in order
+    // of preference -- picking 'road' unconditionally (the old behavior)
+    // meant this whole call quietly failed every time early on instead of
+    // falling back to the Farm sitting right there as a real option.
+    const preferenceOrder: BuildingType[] = ['road', 'farm'];
+    const claimType = preferenceOrder.find((t) => options.includes(t) && this.canAfford(t)) ?? options[0];
     if (!claimType) return false;
     return this.state.issueBuild(this.me, claimTile, claimType).ok;
+  }
+
+  private canAfford(type: BuildingType): boolean {
+    const cost = this.state.previewBuildCost(this.me, type);
+    const player = this.state.players[this.me];
+    return (Object.keys(cost) as ResourceKey[]).every((r) => (cost[r] ?? 0) <= player[r]);
   }
 
   private maybeTrain() {
