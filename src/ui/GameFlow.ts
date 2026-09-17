@@ -63,6 +63,24 @@ export class GameFlow {
   private current: MatchHandles | null = null;
   private endSequenceStarted = false;
 
+  /**
+   * A backgrounded mobile tab can keep running (timers/rAF often aren't
+   * fully suspended on an app-switch, just heavily throttled) while some
+   * part of the page's touch/pointer state gets left stuck on return --
+   * the match looked "alive" (clock and resources still moving) but taps
+   * stopped doing anything. Freezing the sim the instant the page goes
+   * hidden, and only unfreezing once it's genuinely visible again, avoids
+   * that window entirely: nothing to get stuck mid-gesture, and the match
+   * simply picks back up where it left off, like a pause. Only wired up
+   * once the intro countdown hands off control (so backgrounding during
+   * "3, 2, 1, BEGIN" can't unfreeze it early) and torn down on exit so a
+   * rematch doesn't stack a second listener.
+   */
+  private handleVisibilityChange = () => {
+    if (!this.current || this.current.state.gameOver) return;
+    this.current.scene.setFrozen(document.hidden);
+  };
+
   private titleScreen = el('title-screen');
   private startBtn = el<HTMLButtonElement>('title-start');
   private fadeOverlay = el('fade-overlay');
@@ -113,6 +131,7 @@ export class GameFlow {
     await this.runCountdown();
     handles.scene.setFrozen(false);
     startAmbientLoop();
+    document.addEventListener('visibilitychange', this.handleVisibilityChange);
   }
 
   private async runCountdown() {
@@ -161,6 +180,7 @@ export class GameFlow {
   }
 
   private async runEndSequence(state: GameState) {
+    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     stopAmbientLoop();
     document.body.classList.add('darken', 'hud-hidden');
     await sleep(DARKEN_MS);

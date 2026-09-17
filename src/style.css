@@ -79,13 +79,23 @@ body.desktop-mode #app {
   max-width: 320px;
 }
 
-/* This is a landscape-only game. Below a certain width there's no sane way
-   to fit the map + UI, so ask a mobile player to rotate instead of
-   squeezing it. Desktop mode skips this entirely -- a resizable browser
-   window going narrow/tall isn't the same situation as a phone held
-   upright, and nobody can "rotate" a monitor. */
+/* This is a landscape-only game, full stop -- including the title screen
+   and the intro countdown, not just the match itself. Below a certain
+   width there's no sane way to fit the map + UI, so ask a mobile player to
+   rotate instead of squeezing it. #title-screen, #countdown-overlay, and
+   #victory-overlay all live outside #app (they're full-page overlays, not
+   part of the Phaser canvas) and all sit at a higher z-index than
+   #rotate-overlay, so without listing them here too they'd render right on
+   top of the rotate prompt instead of being hidden by it -- letting Start
+   get pressed, and the countdown play out, while still in portrait. Desktop
+   mode skips this entirely -- a resizable browser window going narrow/tall
+   isn't the same situation as a phone held upright, and nobody can
+   "rotate" a monitor. */
 @media (orientation: portrait) {
-  body.mobile-mode #app {
+  body.mobile-mode #app,
+  body.mobile-mode #title-screen,
+  body.mobile-mode #countdown-overlay,
+  body.mobile-mode #victory-overlay {
     display: none;
   }
   body.mobile-mode #rotate-overlay {

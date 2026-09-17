@@ -173,6 +173,15 @@ export class GameState {
         });
         if (!hasNeighborMatch) return false;
       }
+      // Quarry is the one building whose adjacency requirement depends on
+      // which of its two allowed terrains the site actually is: any Hills
+      // tile qualifies outright, but a Plains tile only counts next to a
+      // Mountain -- not a blanket rule, so it can't live in
+      // requiresAdjacentTerrain above.
+      if (type === 'quarry' && t.terrain === 'plains') {
+        const hasMountainNeighbor = neighborsOf(tile).some((n) => this.tiles.get(key(n))?.terrain === 'mountains');
+        if (!hasMountainNeighbor) return false;
+      }
       if (def.maxConcurrent != null) {
         const count = this.buildingsOf(owner).filter((b) => b.type === type).length;
         if (count >= def.maxConcurrent) return false;

@@ -207,7 +207,7 @@ the AI's is always red regardless of which side you land on.
 | Farm | Plains | Gold only, escalating per lifetime build (10, 12, 16, 22, ...) | 10 hp / 2 def | 2 food + 5 straw / 3s (4 + 8 near a river/lake) | Unlocks the Barracks |
 | Barracks | Plains/Hills | 25 gold + 25 straw | 20 hp / 10 def | Trains troops | Only one active/constructing at a time; trains 3s faster next to a Farm; counters a landed hit for 4 damage |
 | Lumber Mill | Plains/Hills, adjacent to Forest | 30 gold + 35 straw | 20 hp / 3 def | 2 wood per adjacent Forest tile / 6s | Unlocks the Archer once active |
-| Quarry | Hills, adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
+| Quarry | Any Hills tile, or a Plains tile adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
 | Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | +2 food to any directly adjacent Farm |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
 | Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |
@@ -249,10 +249,19 @@ the title screen, that same button sits enlarged beneath the Start
 button instead of tucked in a corner, then animates down into its
 normal pill shape the moment you press Start. **Mobile mode** goes
 edge-to-edge like a phone app and shows a "rotate your device" prompt
-in portrait. **Desktop mode** presents the game as a centered,
-shadowed panel against a dark background instead of bleeding to the
-browser window's edges, and never nags about orientation (nobody
-rotates a monitor).
+in portrait — that applies everywhere, not just mid-match: the title
+screen and the intro countdown are just as locked out of portrait as
+the game board itself, so there's no way to start (or watch the
+3-2-1-BEGIN countdown play out) while still holding the phone upright.
+**Desktop mode** presents the game as a centered, shadowed panel
+against a dark background instead of bleeding to the browser window's
+edges, and never nags about orientation (nobody rotates a monitor).
+
+A backgrounded mobile tab (switching apps mid-match, then coming back)
+freezes the match the instant the page goes hidden and picks back up
+exactly where it left off once it's visible again — the 5-minute clock
+and everything else just pauses, rather than the match continuing to
+run somewhere the player can't see or interact with it.
 
 ## Not yet built (intentionally out of scope for this pass)
 

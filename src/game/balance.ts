@@ -145,10 +145,13 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     buildTimeMs: 10000,
     maxHp: 25,
     defense: 4,
-    allowedTerrain: ['hills'],
-    requiresAdjacentTerrain: ['mountains'],
+    // Any Hills tile qualifies outright; a Plains tile only qualifies next
+    // to a Mountain (enforced as a special case in availableBuildingsFor,
+    // since it's conditional on which of the two allowed terrains the site
+    // actually is, not a blanket adjacency requirement).
+    allowedTerrain: ['plains', 'hills'],
     upkeep: { gold: -2, wood: -2, straw: -4 },
-    specialTrait: '+1 Stone per adjacent Mountain tile, every 8s.',
+    specialTrait: '+1 Stone per adjacent Mountain tile, every 8s. Buildable on any Hills tile, or a Plains tile next to a Mountain.',
   },
   fishersHut: {
     name: "Fisher's Hut",
