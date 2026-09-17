@@ -46,13 +46,15 @@ export class UIController {
   private selectedTile: Offset | null = null;
   private selectedTroopId: string | null = null;
   private selectedBuildingId: string | null = null;
-  private mode: 'none' | 'tileInfo' | 'build' | 'buildingInfo' | 'troop' | 'pathTrace' | 'interceptList' = 'none';
+  private mode: 'none' | 'tileInfo' | 'build' | 'buildingInfo' | 'troop' | 'pathTrace' | 'interceptList' | 'boatPlacement' = 'none';
 
   /** Path the player has traced by hand for the selected troop, and the enemy
    * building (if any) it currently ends next to. */
   private tracedPath: Offset[] = [];
   private pendingAttackTargetId: string | null = null;
   private lastLiveSignature: string | null = null;
+  /** The Fisher's Hut whose eligible river tiles are currently glowing on the map, while `mode === 'boatPlacement'`. */
+  private boatPlacementHutId: string | null = null;
 
   private state: GameState;
   private mapView: MapView;
@@ -96,6 +98,10 @@ export class UIController {
   }
 
   onTileClick(tile: Offset) {
+    if (this.mode === 'boatPlacement') {
+      this.handleBoatPlacementTile(tile);
+      return;
+    }
     if (this.mode === 'pathTrace') {
       this.handlePathTraceTile(tile);
       return;
@@ -110,7 +116,50 @@ export class UIController {
     this.renderTileInfo();
   }
 
+  /**
+   * A tap while a Fisher's Hut's eligible river tiles are glowing: builds a
+   * boat there if it's one of them, otherwise cancels placement mode and
+   * re-dispatches the tap as an ordinary click (so tapping away, or another
+   * building/tile, behaves exactly as it would outside placement mode).
+   */
+  private handleBoatPlacementTile(tile: Offset) {
+    const hut = this.boatPlacementHutId ? this.state.buildings.get(this.boatPlacementHutId) : null;
+    if (!hut) {
+      this.exitBoatPlacement();
+      this.closePanel();
+      return;
+    }
+    const eligible = this.state.eligibleFishingBoatTiles(hut);
+    const isEligible = eligible.some((t) => t.col === tile.col && t.row === tile.row);
+    if (!isEligible) {
+      this.exitBoatPlacement();
+      this.mode = 'none';
+      this.onTileClick(tile);
+      return;
+    }
+    const res = this.state.issueBuildFishingBoat(HUMAN, hut.id, tile);
+    if (!res.ok) {
+      this.flashBanner(res.reason ?? 'Failed');
+      return;
+    }
+    const remaining = this.state.eligibleFishingBoatTiles(hut);
+    if (remaining.length > 0) {
+      this.mapView.setBuildableHighlight(remaining);
+    } else {
+      this.exitBoatPlacement();
+      this.selectedBuildingId = hut.id;
+      this.mode = 'buildingInfo';
+      this.renderBuildingInfo();
+    }
+  }
+
+  private exitBoatPlacement() {
+    this.boatPlacementHutId = null;
+    this.mapView.clearBuildableHighlight();
+  }
+
   onBuildingClick(building: Building) {
+    if (this.mode === 'boatPlacement') this.exitBoatPlacement();
     if (this.mode === 'pathTrace') {
       this.handlePathTraceBuilding(building);
       return;
@@ -138,6 +187,7 @@ export class UIController {
 
   onTroopClick(troop: Troop) {
     if (troop.ownerId !== HUMAN) return;
+    if (this.mode === 'boatPlacement') this.exitBoatPlacement();
     // Tapping the same troop again while its menu is already open swaps the
     // panel to the tile it's standing on instead -- a second tap on the
     // troop sprite is otherwise a dead click, and this gives a quick way to
@@ -247,6 +297,7 @@ export class UIController {
     this.selectedTroopId = null;
     this.lastLiveSignature = null;
     this.endPathTrace();
+    this.exitBoatPlacement();
     this.el.panel.classList.add('hidden');
   }
 
@@ -598,17 +649,17 @@ export class UIController {
         const def = BUILDINGS.fishingBoat;
         const cost: Partial<Record<ResourceKey, number>> = { gold: def.goldCost, wood: def.woodCost };
         const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
-        for (const tile of eligible) {
-          const btn = document.createElement('button');
-          btn.className = 'action-btn';
-          btn.disabled = !affordable;
-          btn.textContent = `Build Fishing Boat — ${formatCost(cost)}`;
-          btn.addEventListener('click', () => {
-            const res = this.state.issueBuildFishingBoat(HUMAN, b.id, tile);
-            if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
-          });
-          this.el.panelBody.appendChild(btn);
-        }
+        const btn = document.createElement('button');
+        btn.className = 'action-btn';
+        btn.disabled = !affordable;
+        btn.textContent = `Build Fishing Boat — ${formatCost(cost)}`;
+        btn.addEventListener('click', () => {
+          this.mode = 'boatPlacement';
+          this.boatPlacementHutId = b.id;
+          this.mapView.setBuildableHighlight(this.state.eligibleFishingBoatTiles(b));
+          this.renderBoatPlacementPanel(b);
+        });
+        this.el.panelBody.appendChild(btn);
       }
     }
 
@@ -628,6 +679,26 @@ export class UIController {
       p.textContent = 'Repairing…';
       this.el.panelBody.appendChild(p);
     }
+  }
+
+  /** Shown while a Fisher's Hut's eligible river tiles are glowing on the map, waiting for a tap to confirm where the next Fishing Boat goes. */
+  private renderBoatPlacementPanel(hut: Building) {
+    this.openPanel("Build Fishing Boat");
+    this.el.panelBody.innerHTML = '';
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Tap a glowing river tile to build a Fishing Boat there.';
+    this.el.panelBody.appendChild(hint);
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'action-btn secondary';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', () => {
+      this.exitBoatPlacement();
+      this.selectedBuildingId = hut.id;
+      this.mode = 'buildingInfo';
+      this.renderBuildingInfo();
+    });
+    this.el.panelBody.appendChild(cancelBtn);
   }
 
   private renderTroopMenu() {

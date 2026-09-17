@@ -77,6 +77,14 @@ the AI's is always red regardless of which side you land on.
   rebuild discount, if you have one — see below). Tap your own
   building to see its status, live production, train troops, repair
   it, or read its **Special Trait**.
+- A Fisher's Hut's panel has a single **Build Fishing Boat** button
+  (hidden once no eligible tile is left) instead of a separate button
+  per spot — tapping it pulses a glowing outline around every adjacent,
+  empty river/lake tile, and tapping one of those glowing tiles
+  confirms the boat there. If more than one eligible tile is still open
+  afterward, the glow stays up so you can keep tapping to place
+  another; tapping anything else (or **Cancel**) backs out of placement
+  mode without spending anything.
 - **Territory isn't a fixed half of the map** — it's every tile with
   one of your buildings on it, plus that tile's immediate neighbors.
   You start able to build only around your castle, and each new
@@ -216,7 +224,7 @@ the AI's is always red regardless of which side you land on.
 | Barracks | Plains/Hills | 25 gold + 25 straw | 20 hp / 10 def | Trains troops | Only one active/constructing at a time; trains 3s faster next to a Farm; counters a landed hit for 4 damage |
 | Lumber Mill | Plains/Hills, adjacent to Forest | 30 gold + 35 straw | 20 hp / 3 def | 2 wood per adjacent Forest tile / 6s | Unlocks the Archer once active |
 | Quarry | Any Hills tile, or a Plains tile adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
-| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | Build Fishing Boats (from its own panel) on any adjacent river/lake tile; +2 gold production per adjacent active boat |
+| Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | One Build Fishing Boat button (its own panel) highlights eligible adjacent river/lake tiles to tap; +2 gold production per adjacent active boat |
 | Fishing Boat | River/lake tile adjacent to the Fisher's Hut that builds it (not in the general build menu) | 2 gold + 8 wood | 8 hp / 2 def | 2 food / 3s | Upkeep -2 wood; also feeds its parent Fisher's Hut's gold bonus (see above) |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
 | Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |

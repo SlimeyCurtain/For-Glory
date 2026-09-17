@@ -39,6 +39,9 @@ export interface SceneCallbacks {
 export interface MapView {
   setPathPreview(startTile: Offset, path: Offset[]): void;
   clearPathPreview(): void;
+  /** Pulses a glowing outline around each tile a pending building action (currently: Fishing Boat placement) can be confirmed on. */
+  setBuildableHighlight(tiles: Offset[]): void;
+  clearBuildableHighlight(): void;
 }
 
 interface BuildingSprite {
@@ -69,6 +72,8 @@ export class MainScene extends Phaser.Scene implements MapView {
   private troopSprites = new Map<string, TroopSprite>();
   private pathPreviewGraphics!: Phaser.GameObjects.Graphics;
   private shotGraphics!: Phaser.GameObjects.Graphics;
+  private buildHighlightGraphics!: Phaser.GameObjects.Graphics;
+  private buildHighlightTiles: Offset[] = [];
   private activeShotEffects: ShotEffect[] = [];
 
   private state: GameState;
@@ -91,6 +96,7 @@ export class MainScene extends Phaser.Scene implements MapView {
   create() {
     this.drawTerrain();
     this.pathPreviewGraphics = this.add.graphics();
+    this.buildHighlightGraphics = this.add.graphics();
     this.shotGraphics = this.add.graphics();
     this.input.on('pointerdown', (_p: Phaser.Input.Pointer, objects: Phaser.GameObjects.GameObject[]) => {
       if (objects.length === 0) return;
@@ -118,11 +124,33 @@ export class MainScene extends Phaser.Scene implements MapView {
     this.pathPreviewGraphics.clear();
   }
 
-  private strokeHex(tile: Offset, color: number, width: number) {
-    const center = this.toScreen(offsetToPixel(tile));
-    const corners = hexCorners(center);
-    const g = this.pathPreviewGraphics;
-    g.lineStyle(width, color, 1);
+  setBuildableHighlight(tiles: Offset[]) {
+    this.buildHighlightTiles = tiles;
+  }
+
+  clearBuildableHighlight() {
+    this.buildHighlightTiles = [];
+    this.buildHighlightGraphics.clear();
+  }
+
+  /** Redrawn every frame (see `update`) so the glow can pulse rather than sit static. */
+  private drawBuildHighlight(time: number) {
+    const g = this.buildHighlightGraphics;
+    g.clear();
+    if (this.buildHighlightTiles.length === 0) return;
+    const pulse = 0.5 + 0.5 * Math.sin(time / 220);
+    const glowColor = 0x38f2c8;
+    for (const tile of this.buildHighlightTiles) {
+      const center = this.toScreen(offsetToPixel(tile));
+      const corners = hexCorners(center);
+      g.lineStyle(9, glowColor, 0.18 + pulse * 0.18);
+      this.strokeHexPath(g, corners);
+      g.lineStyle(3.5, glowColor, 0.7 + pulse * 0.3);
+      this.strokeHexPath(g, corners);
+    }
+  }
+
+  private strokeHexPath(g: Phaser.GameObjects.Graphics, corners: { x: number; y: number }[]) {
     g.beginPath();
     g.moveTo(corners[0].x, corners[0].y);
     for (let i = 1; i < corners.length; i++) g.lineTo(corners[i].x, corners[i].y);
@@ -130,7 +158,16 @@ export class MainScene extends Phaser.Scene implements MapView {
     g.strokePath();
   }
 
-  update(_time: number, delta: number) {
+  private strokeHex(tile: Offset, color: number, width: number) {
+    const center = this.toScreen(offsetToPixel(tile));
+    const corners = hexCorners(center);
+    const g = this.pathPreviewGraphics;
+    g.lineStyle(width, color, 1);
+    this.strokeHexPath(g, corners);
+  }
+
+  update(time: number, delta: number) {
+    this.drawBuildHighlight(time);
     if (!this.state.gameOver && !this.frozen) {
       const dtMs = Math.min(delta, MAX_DT_MS);
       // A sim tick throwing (an edge case we haven't hit in testing, but
