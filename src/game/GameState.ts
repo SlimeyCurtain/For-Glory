@@ -239,15 +239,8 @@ export class GameState {
     return best;
   }
 
-  /**
-   * Full resource cost for this player's next instance of `type`. A pending
-   * rebuild credit (half of whatever a just-destroyed instance of this type
-   * actually cost) always takes priority over the normal price -- including
-   * the farm's escalating gold cost, which the credit deliberately bypasses.
-   */
+  /** Full resource cost for this player's next fresh instance of `type` (farms escalate; everything else is flat). */
   previewBuildCost(owner: PlayerId, type: BuildingType): Partial<Record<ResourceKey, number>> {
-    const credit = this.rebuildCredits.find((c) => c.ownerId === owner && c.type === type);
-    if (credit) return credit.cost;
     const def = BUILDINGS[type];
     const cost: Partial<Record<ResourceKey, number>> = { gold: this.goldCostFor(owner, type) };
     if (def.foodCost) cost.food = def.foodCost;
@@ -289,6 +282,60 @@ export class GameState {
     return upkeepPerSec + productionPerSec;
   }
 
+  /**
+   * Net per-second effect a not-yet-built `type` would have on `resource` if
+   * placed at `tile` -- production worked out the same way `spawnBuilding`
+   * would from that tile's actual neighboring terrain, plus upkeep, without
+   * actually building anything. Lets the AI answer "if I built this specific
+   * thing right now, would it fix the resource I'm worried about?" before
+   * committing to some other action that dips into it.
+   */
+  estimateNetResourceContribution(type: BuildingType, tile: Offset, resource: ResourceKey): number {
+    const def = BUILDINGS[type];
+    let perSec = 0;
+    const upkeepAmount = def.upkeep?.[resource];
+    if (upkeepAmount) perSec += upkeepAmount / (RESOURCE_TICK_MS[resource] / 1000);
+
+    const siteTerrain = this.tiles.get(key(tile))?.terrain;
+    const neighborTerrains = neighborsOf(tile).map((n) => this.tiles.get(key(n))?.terrain);
+
+    if (type === 'farm') {
+      const nearWater = neighborTerrains.includes('river');
+      if (resource === 'food') {
+        const food = nearWater ? FARM_FOOD.waterAdjacent : FARM_FOOD.base;
+        perSec += food.amount / (food.intervalMs / 1000);
+      }
+      if (resource === 'straw') {
+        const straw = nearWater ? FARM_STRAW.waterAdjacent : FARM_STRAW.base;
+        perSec += straw.amount / (straw.intervalMs / 1000);
+      }
+    } else if (type === 'lumberMill' && resource === 'wood') {
+      const forestCount = neighborTerrains.filter((t) => t === 'forest').length;
+      perSec += (forestCount * LUMBER_MILL_WOOD_PER_FOREST) / (LUMBER_MILL_WOOD_INTERVAL_MS / 1000);
+    } else if (type === 'quarry' && resource === 'stone') {
+      const mountainCount = neighborTerrains.filter((t) => t === 'mountains').length;
+      perSec += (mountainCount * QUARRY_STONE_PER_MOUNTAIN) / (QUARRY_STONE_INTERVAL_MS / 1000);
+    } else if (type === 'fishersHut' && resource === 'gold') {
+      perSec += FISHERS_HUT_GOLD.amount / (FISHERS_HUT_GOLD.intervalMs / 1000);
+    } else if (type === 'fishingBoat' && resource === 'food') {
+      perSec += FISHING_BOAT_FOOD.amount / (FISHING_BOAT_FOOD.intervalMs / 1000);
+    } else if (type === 'house') {
+      if (resource === 'gold') {
+        perSec += HOUSE_GOLD_BASE.amount / (HOUSE_GOLD_BASE.intervalMs / 1000);
+        if (neighborTerrains.includes('mountains')) {
+          perSec += HOUSE_MOUNTAIN_BONUS_GOLD.amount / (HOUSE_MOUNTAIN_BONUS_GOLD.intervalMs / 1000);
+        }
+      }
+      if (resource === 'wood' && siteTerrain === 'forest') {
+        perSec += HOUSE_FOREST_WOOD.amount / (HOUSE_FOREST_WOOD.intervalMs / 1000);
+      }
+      if (resource === 'stone' && neighborTerrains.includes('mountains')) {
+        perSec += HOUSE_MOUNTAIN_BONUS_STONE_UPKEEP / (RESOURCE_TICK_MS.stone / 1000);
+      }
+    }
+    return perSec;
+  }
+
   attackableBuildings(attacker: PlayerId): Building[] {
     const opp = this.opponentOf(attacker);
     const hasSiege = this.troopsOf(attacker).some((t) => TROOPS[t.type].isSiege);
@@ -306,19 +353,14 @@ export class GameState {
     if (!this.availableBuildingsFor(owner, tile).includes(type))
       return { ok: false, reason: 'Cannot build that here' };
     const player = this.players[owner];
-    const credit = this.takeRebuildCredit(owner, type);
-    const cost = credit ? credit.cost : this.previewBuildCost(owner, type);
-    const buildTimeMs = credit ? credit.buildTimeMs : BUILDINGS[type].buildTimeMs;
+    const cost = this.previewBuildCost(owner, type);
     for (const resource of Object.keys(cost) as ResourceKey[]) {
-      if (player[resource] < (cost[resource] ?? 0)) {
-        if (credit) this.rebuildCredits.push(credit); // don't burn the discount on a failed attempt
-        return { ok: false, reason: 'Not enough resources' };
-      }
+      if (player[resource] < (cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
     }
     for (const resource of Object.keys(cost) as ResourceKey[]) {
       player[resource] -= cost[resource] ?? 0;
     }
-    this.spawnBuilding(owner, type, tile, false, buildTimeMs, cost, !!credit);
+    this.spawnBuilding(owner, type, tile, false, BUILDINGS[type].buildTimeMs, cost, false);
     return { ok: true };
   }
 
@@ -369,6 +411,11 @@ export class GameState {
     return this.rebuildCredits.splice(idx, 1)[0];
   }
 
+  /** The pending rebuild credit for this owner+type, if any -- lets the UI preview Rebuild's price without consuming it. */
+  rebuildCreditFor(owner: PlayerId, type: BuildingType): RebuildCredit | null {
+    return this.rebuildCredits.find((c) => c.ownerId === owner && c.type === type) ?? null;
+  }
+
   /**
    * Any destroyed building (not just ones capped at one-at-a-time) grants a
    * standing credit good for half of whatever that specific instance
@@ -403,6 +450,11 @@ export class GameState {
    * opponent's costs 10 gold instead, and requires one of your troops to
    * currently be standing adjacent to it -- you're paying to send soldiers
    * to physically dig it out, not waving a wand from across the map.
+   *
+   * Clearing forfeits whatever pending rebuild credit that specific instance
+   * earned -- `issueRebuildRubble` was the only way to keep it, and once the
+   * rubble itself is gone there's no tile left for that discount to rebuild
+   * onto anyway.
    */
   issueClearRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
     const b = this.buildings.get(buildingId);
@@ -416,7 +468,53 @@ export class GameState {
     const player = this.players[owner];
     if (player.gold < cost) return { ok: false, reason: 'Not enough gold' };
     player.gold -= cost;
+    this.takeRebuildCredit(b.ownerId, b.type);
     this.buildings.delete(b.id);
+    return { ok: true };
+  }
+
+  /**
+   * Reconstructs a still-standing pile of rubble in place, at the half-
+   * price/half-time credit its destruction earned -- the fast, cheap
+   * alternative to Clear Tile. Only the rubble's own owner may use it (an
+   * opponent has no business spending your discount for you), and it's only
+   * available for as long as the rubble hasn't been cleared out from under
+   * it (see issueClearRubble).
+   */
+  issueRebuildRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
+    const b = this.buildings.get(buildingId);
+    if (!b || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    if (b.ownerId !== owner) return { ok: false, reason: 'Not your rubble' };
+    const credit = this.rebuildCreditFor(owner, b.type);
+    if (!credit) return { ok: false, reason: 'No rebuild credit available' };
+    const player = this.players[owner];
+    for (const resource of Object.keys(credit.cost) as ResourceKey[]) {
+      if (player[resource] < (credit.cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
+    }
+    this.takeRebuildCredit(owner, b.type);
+    for (const resource of Object.keys(credit.cost) as ResourceKey[]) {
+      player[resource] -= credit.cost[resource] ?? 0;
+    }
+    const tile = b.tile;
+    this.buildings.delete(b.id);
+    this.spawnBuilding(owner, b.type, tile, false, credit.buildTimeMs, credit.cost, true);
+    return { ok: true };
+  }
+
+  /**
+   * Free, voluntary self-destruction: turns an active building into the same
+   * rubble a combat kill would leave, credit and all -- for when a
+   * building's own upkeep is doing more harm than good and there's nothing
+   * else to build to offset it. The castle can't be demolished (there'd be
+   * nothing to rebuild it into), and neither can something still under
+   * construction -- there's no standing building there yet to tear down, and
+   * its resources are already spent regardless.
+   */
+  issueDemolish(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
+    const b = this.buildings.get(buildingId);
+    if (!b || b.ownerId !== owner || b.state !== 'active') return { ok: false, reason: 'Invalid target' };
+    if (b.type === 'castle') return { ok: false, reason: 'Cannot demolish the castle' };
+    this.destroyBuilding(b);
     return { ok: true };
   }
 

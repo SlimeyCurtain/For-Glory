@@ -1,6 +1,7 @@
 import { BUILDINGS, RESOURCE_TICK_MS, TROOPS } from './balance';
 import type { BuildingType, ResourceKey, TroopType } from './balance';
 import { GameState } from './GameState';
+import { hexDistance } from './hex';
 import type { PlayerId } from './types';
 
 /** How many troops the AI keeps trained up before it stops re-training and lets gold pile up for infrastructure instead. */
@@ -64,8 +65,22 @@ const GROWTH_POOL: WishlistItem[] = [
 
 const ALL_RESOURCES: ResourceKey[] = ['gold', 'food', 'straw', 'wood', 'stone'];
 
-/** How much real per-second headroom `maybeTrain` requires beyond zero before committing to another permanent troop upkeep. */
-const TRAIN_UPKEEP_BUFFER = 0.15;
+/**
+ * A resource landing on an exact tie (or worse) used to be explicitly
+ * tolerated here on the theory that "at least +0" is sustainable -- but a
+ * tie is still a dead end, since it can never again save toward whatever
+ * building would have actually fixed it (this is exactly how the AI used to
+ * get stuck forever at 2 Lumber Mills). "+0 or negative" is now refused
+ * outright. (A hard +1-per-action floor was tried first and tested live: it
+ * blocked Barracks itself -- base gold income is only +1/s, so Barracks'
+ * own -0.4/s upkeep alone already fails a >=1 bar -- and stalled the AI at a
+ * single Farm for an entire match. "+0 or negative" is the line that's
+ * actually enforceable without breaking early game.) The one exception is
+ * `hasKnownRescueFor`: a foreseeable dip is fine as long as the AI can name
+ * a real, reachable build that fixes it -- even one it can't afford this
+ * exact instant, since by definition a *future* fix doesn't have to be.
+ */
+const MIN_SUSTAIN_RATE = 0;
 
 /**
  * Scripted opponent for the core loop. Priority order, same as a player
@@ -89,6 +104,7 @@ export class AIController {
     if (this.decisionCooldownMs > 0) return;
     this.decisionCooldownMs = 1200;
 
+    this.maybeRebuildRubble();
     this.maybeBuild();
     this.maybeTrain();
     this.maybeAttack();
@@ -97,36 +113,143 @@ export class AIController {
 
   /** Whether any resource the AI is already invested in is currently losing ground -- the "stop digging" signal. */
   private hasAnyDeficit(): boolean {
-    return ALL_RESOURCES.some((r) => this.state.netResourceRatePerSec(this.me, r) < -0.05);
+    return ALL_RESOURCES.some((r) => this.projectedResourceRatePerSec(r) < -0.05);
+  }
+
+  /**
+   * `GameState.netResourceRatePerSec`, but also counting upkeep from this
+   * player's currently-constructing buildings -- upkeep that's already
+   * locked in (the resources were spent to start it, and there's no way to
+   * cancel) but doesn't show up in the live rate until the building
+   * actually goes active. Without this, a Lumber Mill still mid-construction
+   * is invisible to every solvency check -- including one for a *second*
+   * Lumber Mill, or for training a troop -- even though its own upkeep is a
+   * certainty the instant it finishes. Two Lumber Mills each drawing a
+   * little gold upkeep, on top of whatever a Barracks and a Militia already
+   * draw, is exactly the kind of combination that can otherwise sum to a
+   * perfect, permanent tie with base income the moment the second one
+   * activates -- not a deficit (so the "stop digging" guard never trips),
+   * just an economy that can never again save toward anything, including
+   * the Fisher's Hut or Quarry that would have fixed it.
+   */
+  private projectedResourceRatePerSec(resource: ResourceKey): number {
+    let rate = this.state.netResourceRatePerSec(this.me, resource);
+    for (const b of this.state.buildingsOf(this.me)) {
+      if (b.state !== 'constructing') continue;
+      const amount = BUILDINGS[b.type].upkeep?.[resource];
+      if (!amount) continue;
+      rate += amount / (RESOURCE_TICK_MS[resource] / 1000);
+    }
+    return rate;
   }
 
   /**
    * Whether taking on this much more per-resource upkeep would still leave
-   * every affected resource's net rate at or above `buffer` -- the actual
-   * thing that starves an economy isn't the one-time cost (issueBuild/
-   * issueTrain already refuse what isn't affordable), it's stacking
-   * recurring drain faster than production grows to cover it.
+   * every affected resource's net rate above `buffer` (MIN_SUSTAIN_RATE by
+   * default, i.e. strictly positive) -- the actual thing that starves an
+   * economy isn't the one-time cost (issueBuild/issueTrain already refuse
+   * what isn't affordable), it's stacking recurring drain faster than
+   * production grows to cover it.
    *
-   * `buffer` defaults to (essentially) zero, deliberately allowing a
-   * building to land the economy on a razor-thin tie rather than demanding
-   * a comfort margin above it -- requiring a positive cushion here is what
-   * used to wall the AI off permanently the moment any two of its own
-   * commitments summed to an exact tie, even though "at least +0" is a
-   * perfectly sustainable place to be. `maybeTrain` passes a real positive
-   * buffer instead: gold is the one resource both troops and buildings
-   * compete for, and a troop's upkeep is forever, so training should only
-   * eat into gold once there's genuine slack left over -- otherwise it just
-   * out-competes the next infrastructure upgrade for the exact margin that
-   * upgrade needed, forever.
+   * A resource that would land at or below the floor isn't an automatic
+   * refusal, though: if the AI already knows of some other real, reachable
+   * build that would produce enough of that same resource to clear the floor
+   * again, the dip is a foreseen and remediable one rather than a permanent
+   * wall -- see `hasKnownRescueFor`.
    */
-  private canSustainUpkeep(upkeep: Partial<Record<ResourceKey, number>>, buffer = 0): boolean {
+  private canSustainUpkeep(upkeep: Partial<Record<ResourceKey, number>>, buffer = MIN_SUSTAIN_RATE): boolean {
     for (const resource of Object.keys(upkeep) as ResourceKey[]) {
       const perTick = upkeep[resource] ?? 0;
       if (perTick === 0) continue;
       const perSecond = perTick / (RESOURCE_TICK_MS[resource] / 1000);
-      if (this.state.netResourceRatePerSec(this.me, resource) + perSecond < buffer - 0.001) return false;
+      const projected = this.projectedResourceRatePerSec(resource) + perSecond;
+      if (projected > buffer + 0.001) continue;
+      // A flat tie (projected == 0) doesn't drain the stockpile -- it's
+      // stuck, not losing ground -- so knowing of a someday-reachable fix is
+      // enough. An actual negative rate DOES drain the stockpile every tick,
+      // risking the real insolvency damage `resolveUpkeepTick` hands out
+      // once the reserve runs dry -- that needs a fix that's buildable and
+      // affordable *right now*, not just known about.
+      const isDraining = projected < -0.001;
+      if (!this.hasKnownRescueFor(resource, projected, buffer, isDraining)) return false;
     }
     return true;
+  }
+
+  /** Whether `type`'s production (as `spawnBuilding` assigns it) can ever feed `resource` at all -- the domain knowledge already baked into the wishlist's own ordering. */
+  private producesResource(type: BuildingType, resource: ResourceKey): boolean {
+    switch (type) {
+      case 'farm':
+        return resource === 'food' || resource === 'straw';
+      case 'lumberMill':
+        return resource === 'wood';
+      case 'quarry':
+        return resource === 'stone';
+      case 'fishersHut':
+        return resource === 'gold';
+      case 'house':
+        return resource === 'gold' || resource === 'wood';
+      default:
+        return false;
+    }
+  }
+
+  /**
+   * Whether `type` could ever go up somewhere in this settlement's reach,
+   * even though no qualifying tile is claimed yet -- the same terrain search
+   * `tryExpandToward` uses, without actually claiming anything.
+   */
+  private canEventuallyReach(type: BuildingType): boolean {
+    const reqTerrain = type === 'quarry' ? 'hills' : BUILDINGS[type].requiresAdjacentTerrain?.[0];
+    if (!reqTerrain) return true; // no special terrain needed -- it's just short on ordinary resources for now, not permanently out of reach
+    return !!this.state.nearestTerrainTile(this.me, reqTerrain);
+  }
+
+  /**
+   * Is there some other item the AI already has on its own priority list
+   * that would carry `resource` back above `buffer`, either right now or
+   * once the settlement can physically reach it? Scans the same priority
+   * lists building decisions already work from, in order, so the "rescue"
+   * the AI is relying on is always something it would actually go on to
+   * build next -- not a hypothetical it has no intention of acting on.
+   *
+   * `requireImmediate` is the difference between a flat tie and a real
+   * deficit (see `canSustainUpkeep`): when true (the dip is actually
+   * negative and draining the stockpile every tick), the fix must be
+   * buildable AND affordable this exact instant, not merely known about --
+   * a live trace of the lenient version proved this matters: the AI took a
+   * -0.2 gold/s dip on the promise of a Fisher's Hut it couldn't build for
+   * another two minutes, ran gold to zero in the meantime, and insolvency
+   * damage killed all three of its own troops before the "rescue" ever
+   * landed. A flat tie (projected == 0) never drains anything, so a plan
+   * the AI is merely working toward -- reachable but not yet affordable --
+   * is a safe enough promise; that leniency is what unblocks the real
+   * Lumber-Mill-to-Fisher's-Hut pipeline (the second mill's own gold tie can
+   * only ever be fixed by a hut that needs wood the AI doesn't have until
+   * that second mill exists).
+   */
+  private hasKnownRescueFor(resource: ResourceKey, projectedRate: number, buffer: number, requireImmediate: boolean): boolean {
+    const territory = this.state.ownedTerritoryTiles(this.me);
+    for (const list of [BUILD_WISHLIST, GROWTH_POOL]) {
+      for (const item of list) {
+        const countOfType = this.state.buildingsOf(this.me).filter((b) => b.type === item.type).length;
+        if (countOfType >= item.cap) continue;
+
+        const spot = territory.find(
+          (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes(item.type)
+        );
+        if (spot) {
+          const contribution = this.state.estimateNetResourceContribution(item.type, spot, resource);
+          if (contribution > 0 && projectedRate + contribution >= buffer - 0.001 && (!requireImmediate || this.canAfford(item.type))) {
+            return true;
+          }
+          continue;
+        }
+
+        if (!requireImmediate && this.producesResource(item.type, resource) && this.canEventuallyReach(item.type)) return true;
+      }
+    }
+    return false;
   }
 
   /** The upkeep of the next not-yet-built, solvency-gated build target -- what maybeTrain needs to leave room for. */
@@ -203,8 +326,8 @@ export class AIController {
       );
       if (!spot) {
         // No qualifying tile in territory *yet*. If this building needs a
-        // specific adjacent terrain (Lumber Mill/forest, Quarry/mountains,
-        // Fisher's Hut/river) that terrain may simply be outside how far the
+        // specific terrain nearby (Lumber Mill/forest, Fisher's Hut/river,
+        // Quarry/hills) that terrain may simply be outside how far the
         // settlement has grown -- claim whatever's closest to it instead of
         // stalling on this forever, which walks territory a ring nearer
         // every cycle until the real spot opens up.
@@ -249,7 +372,13 @@ export class AIController {
    * leaving it permanently locked out of an entire branch of the tech tree.
    */
   private tryExpandToward(type: BuildingType): boolean {
-    const reqTerrain = BUILDINGS[type].requiresAdjacentTerrain?.[0];
+    // Quarry doesn't declare requiresAdjacentTerrain -- any Hills tile
+    // qualifies outright rather than needing to be adjacent to one (see
+    // BUILDINGS.quarry), so it's handled as a special case here too, the
+    // same way availableBuildingsFor special-cases it. Without this, a
+    // Quarry that isn't already reachable can never become reachable: this
+    // is the only path that ever walks territory toward new terrain at all.
+    const reqTerrain = type === 'quarry' ? 'hills' : BUILDINGS[type].requiresAdjacentTerrain?.[0];
     if (!reqTerrain) return false;
     const target = this.state.nearestTerrainTile(this.me, reqTerrain);
     if (!target) return false;
@@ -272,10 +401,30 @@ export class AIController {
     return (Object.keys(cost) as ResourceKey[]).every((r) => (cost[r] ?? 0) <= player[r]);
   }
 
+  /** Whether any enemy troop is close enough to this player's own territory to be a real, immediate threat -- not just somewhere else on the map. */
+  private isUnderThreat(): boolean {
+    const opp = this.state.opponentOf(this.me);
+    const territory = this.state.ownedTerritoryTiles(this.me);
+    return this.state.troopsOf(opp).some((t) => territory.some((tile) => hexDistance(t.tile, tile) <= 2));
+  }
+
+  /** Whether the settlement has grown past the fragile early game -- once true, training toward a real attack force is worth the upkeep it competes with. */
+  private hasEstablishedEconomy(): boolean {
+    return this.state.buildingsOf(this.me).some((b) => b.type === 'fishersHut' || b.type === 'quarry' || b.type === 'house');
+  }
+
   private maybeTrain() {
     const barracks = this.state.buildingsOf(this.me).find((b) => b.type === 'barracks' && b.state === 'active' && !b.training);
     if (!barracks) return;
     if (this.hasAnyDeficit()) return; // fixing the economy outranks growing the army
+
+    // A lone standing troop paid for out of habit, with no attack planned and
+    // no enemy nearby, is pure waste -- its upkeep competes with the exact
+    // infrastructure that would have grown the economy for good. Only train
+    // reactively (an enemy is actually closing in) or once the economy has
+    // already cleared the early game and can genuinely afford to fund a real
+    // attack force.
+    if (!this.isUnderThreat() && !this.hasEstablishedEconomy()) return;
 
     // A standing army has a ceiling -- past it, gold that would go to yet
     // another militia instead piles up toward the build wishlist. Without
@@ -310,14 +459,13 @@ export class AIController {
     for (const resource of Object.keys(combined) as ResourceKey[]) {
       if (resource in reserved) combined[resource] = (combined[resource] ?? 0) + (reserved[resource] ?? 0);
     }
-    // Building can land the economy on an exact zero (see canSustainUpkeep),
-    // but training shouldn't cut it that close -- gold is the one resource
-    // both troops and infrastructure draw on, and a militia that eats the
-    // last sliver of margin blocks the next building just as effectively as
-    // if it had been spent on that building's own upkeep. Require genuine
-    // slack here so the army grows once the economy actually has room for
-    // it, not just the instant it's mathematically non-negative.
-    if (!this.canSustainUpkeep(combined, TRAIN_UPKEEP_BUFFER)) return;
+    // Gold is the one resource both troops and infrastructure draw on, and a
+    // troop's upkeep is forever -- so a militia trained the instant gold
+    // clears the same +1 floor a building would need blocks the next
+    // building just as effectively as if it had been spent on that
+    // building's own upkeep. canSustainUpkeep's default floor (and its
+    // rescue-aware exception) already does the right thing here.
+    if (!this.canSustainUpkeep(combined)) return;
     this.state.issueTrain(this.me, barracks.id, type);
   }
 
@@ -340,6 +488,18 @@ export class AIController {
       // GameState.autoBuildingTargetFor), once the troop actually arrives.
       this.state.issueMoveTo(troop.id, target.tile);
     }
+  }
+
+  /** Restoring a lost building in place at its half-price credit is always cheaper than starting over fresh elsewhere -- take it the instant it's affordable, before that credit can be forfeited by anything else. */
+  private maybeRebuildRubble() {
+    // buildingsOf filters destroyed instances out (it's the "still standing" list), so rubble has to be found via the raw map instead.
+    const rubble = [...this.state.buildings.values()].find((b) => b.ownerId === this.me && b.state === 'destroyed');
+    if (!rubble) return;
+    const credit = this.state.rebuildCreditFor(this.me, rubble.type);
+    if (!credit) return;
+    const player = this.state.players[this.me];
+    const affordable = (Object.keys(credit.cost) as ResourceKey[]).every((r) => (credit.cost[r] ?? 0) <= player[r]);
+    if (affordable) this.state.issueRebuildRubble(this.me, rubble.id);
   }
 
   private maybeRepair() {

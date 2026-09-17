@@ -41,6 +41,8 @@ export class UIController {
     panelTitle: HTMLElement;
     panelBody: HTMLElement;
     banner: HTMLElement;
+    moveHint: HTMLElement;
+    moveHintText: HTMLElement;
   };
 
   private selectedTile: Offset | null = null;
@@ -74,6 +76,10 @@ export class UIController {
         <div id="panel-body"></div>
         <button id="panel-close">Close</button>
       </div>
+      <div id="move-hint" class="hidden">
+        <span id="move-hint-text"></span>
+        <button id="move-hint-done">Done</button>
+      </div>
     `;
     this.el = {
       resources: Object.fromEntries(
@@ -89,8 +95,15 @@ export class UIController {
       panelTitle: document.getElementById('panel-title')!,
       panelBody: document.getElementById('panel-body')!,
       banner: document.getElementById('banner')!,
+      moveHint: document.getElementById('move-hint')!,
+      moveHintText: document.getElementById('move-hint-text')!,
     };
     document.getElementById('panel-close')!.addEventListener('click', () => this.closePanel());
+    document.getElementById('move-hint-done')!.addEventListener('click', () => {
+      this.exitMoveMode();
+      this.mode = 'troop';
+      this.renderTroopMenu();
+    });
   }
 
   onTileClick(tile: Offset) {
@@ -323,6 +336,7 @@ export class UIController {
 
   private exitMoveMode() {
     this.mapView.clearPathPreview();
+    this.el.moveHint.classList.add('hidden');
   }
 
   /**
@@ -351,24 +365,18 @@ export class UIController {
     this.renderMoveTargetPanel(t);
   }
 
+  /**
+   * The boxed panel every other mode uses would cover a chunk of the bottom
+   * of the map for as long as Move stays active -- and since taps behind it
+   * can't land, a troop routed through that area could pass under it but
+   * never actually be sent to stop there. This slim, click-through strip
+   * replaces it instead: only its Done button (not the text, not the space
+   * around it) actually catches a tap, so every tile stays reachable.
+   */
   private renderMoveTargetPanel(t: Troop) {
-    this.openPanel(`${TROOPS[t.type].name} — Move`);
-    this.el.panelBody.innerHTML = '';
-
-    const hint = document.createElement('p');
-    hint.className = 'hint';
-    hint.textContent = 'Tap anywhere on the board to send this troop there. Tap elsewhere again to redirect it mid-route.';
-    this.el.panelBody.appendChild(hint);
-
-    const doneBtn = document.createElement('button');
-    doneBtn.className = 'action-btn secondary';
-    doneBtn.textContent = 'Done';
-    doneBtn.addEventListener('click', () => {
-      this.exitMoveMode();
-      this.mode = 'troop';
-      this.renderTroopMenu();
-    });
-    this.el.panelBody.appendChild(doneBtn);
+    this.el.panel.classList.add('hidden');
+    this.el.moveHintText.textContent = `${TROOPS[t.type].name} — tap anywhere to move, tap again to redirect`;
+    this.el.moveHint.classList.remove('hidden');
   }
 
   // ---------- panels ----------
@@ -479,6 +487,29 @@ export class UIController {
     this.el.panelBody.appendChild(hint);
 
     const player = this.state.players[HUMAN];
+
+    if (isOwn) {
+      const credit = this.state.rebuildCreditFor(HUMAN, b.type);
+      if (credit) {
+        const rebuildAffordable = RESOURCES.every((r) => (credit.cost[r.key] ?? 0) <= player[r.key]);
+        const rebuildBtn = document.createElement('button');
+        rebuildBtn.className = 'action-btn';
+        rebuildBtn.disabled = !rebuildAffordable;
+        rebuildBtn.textContent = `Rebuild — ${formatCost(credit.cost)}`;
+        rebuildBtn.addEventListener('click', () => {
+          const res = this.state.issueRebuildRubble(HUMAN, b.id);
+          if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+          else this.closePanel();
+        });
+        this.el.panelBody.appendChild(rebuildBtn);
+
+        const forfeitHint = document.createElement('p');
+        forfeitHint.className = 'hint';
+        forfeitHint.textContent = 'Clearing instead forfeits this discount for good.';
+        this.el.panelBody.appendChild(forfeitHint);
+      }
+    }
+
     const cost = isOwn ? CLEAR_RUBBLE_COST : CLEAR_RUBBLE_COST_ENEMY;
     const hasAdjacentTroop = this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1);
     if (!isOwn && !hasAdjacentTroop) {
@@ -488,7 +519,7 @@ export class UIController {
       this.el.panelBody.appendChild(need);
     }
     const btn = document.createElement('button');
-    btn.className = 'action-btn';
+    btn.className = isOwn ? 'action-btn secondary' : 'action-btn';
     btn.textContent = `Clear Tile — ${cost}g`;
     btn.disabled = player.gold < cost || (!isOwn && !hasAdjacentTroop);
     btn.addEventListener('click', () => {
@@ -599,6 +630,18 @@ export class UIController {
       const p = document.createElement('p');
       p.textContent = 'Repairing…';
       this.el.panelBody.appendChild(p);
+    }
+
+    if (b.type !== 'castle') {
+      const demolishBtn = document.createElement('button');
+      demolishBtn.className = 'action-btn danger';
+      demolishBtn.textContent = 'Demolish';
+      demolishBtn.addEventListener('click', () => {
+        const res = this.state.issueDemolish(HUMAN, b.id);
+        if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+        else this.closePanel();
+      });
+      this.el.panelBody.appendChild(demolishBtn);
     }
   }
 

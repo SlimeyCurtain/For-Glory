@@ -273,6 +273,10 @@ body.desktop-mode #app {
   background: #3a3f4b;
 }
 
+.action-btn.danger {
+  background: #7f1d1d;
+}
+
 #panel-close {
   margin-top: 10px;
   background: transparent;
@@ -282,6 +286,46 @@ body.desktop-mode #app {
   padding: 6px 12px;
   cursor: pointer;
   font-size: 12px;
+}
+
+/* Replaces #panel while a troop is in Move mode -- a thin, mostly
+   click-through strip (only #move-hint-done catches taps; #ui-root's own
+   pointer-events: none already covers everything else here) so the map
+   stays fully tappable underneath it instead of losing a chunk of its
+   bottom edge to a boxed panel. */
+#move-hint {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+
+#move-hint.hidden {
+  display: none;
+}
+
+#move-hint-text {
+  font-weight: 700;
+  font-size: 13px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 8px rgba(0, 0, 0, 0.7);
+}
+
+#move-hint-done {
+  pointer-events: auto;
+  flex-shrink: 0;
+  background: rgba(15, 18, 24, 0.9);
+  color: #eef1f5;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .hidden {

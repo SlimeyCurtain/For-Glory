@@ -102,7 +102,11 @@ the AI's is always red regardless of which side you land on.
   "Attack" step to confirm: engaging is automatic (see Combat, below),
   so where you send a troop *is* the decision that matters — walking
   it onto an enemy building or into range of an enemy troop is what
-  starts the fight.
+  starts the fight. While Move is active, its normal boxed panel steps
+  aside for a slim, mostly click-through hint at the bottom of the
+  screen instead — only its own **Done** button catches a tap, so no
+  part of the board is ever blocked off from where you can actually
+  send a troop.
 - Troops take a base 2 seconds to cross a plains-neutral tile; terrain
   scales that up or down: plains (faster), forest (slower), hills
   (slower — unless your own House sits on that hills tile, which
@@ -199,29 +203,40 @@ the AI's is always red regardless of which side you land on.
   Constructing a building only scores 0.25 the very first time you
   ever put up that building type — extra copies don't score, and
   neither does rebuilding one after it's destroyed.
+- **Any of your own active buildings (except the Castle) can be
+  Demolished** — a free, voluntary action in that building's own info
+  panel that turns it into rubble on the spot, exactly as if it had
+  been destroyed in combat, credit and all. It's the fix for a building
+  whose own upkeep is doing more harm than good with nothing else left
+  to build to offset it — tear it down rather than let it keep bleeding
+  a resource dry.
 - **A destroyed building leaves rubble behind, with a crumbling sound
   as it comes down** — a crumbled pile on its tile instead of the spot
   just going empty, so it's never ambiguous whether that patch of
   ground is buildable again yet. Rubble blocks any new construction
-  *and* troop movement (it's genuinely impassable, not just unbuildable)
-  until someone pays to **Clear Tile**, an action in the rubble's own
-  info panel: **5 gold** for your own rubble, or **10 gold** for an
-  opponent's, which additionally requires one of your troops to be
-  standing right next to it — you're paying soldiers to dig it out, not
-  waving a wand from across the map. Clearing a path through an
-  opponent's rubble is the only way back into territory their own
-  wreckage is blocking.
-- **Any destroyed building can be rebuilt at half price and half
-  time** once its tile is cleared — specifically, half of whatever
-  that exact instance cost and took to build, not half of the current
-  (possibly escalated) price. This applies building-by-building; you
-  don't need every copy of a type destroyed first, except for
-  buildings capped at one at a time (the Barracks), where that's
-  already implied. The trade-off: a credit-rebuilt building's first 3
-  completed ticks on each of its production feeds yield nothing (still
-  tick, just empty-handed) — a bigger real-time setback on buildings
-  with long cycles, like the Quarry. Beginning construction, a repair,
-  or a rebuild all ring out with the same few hammer knocks.
+  *and* troop movement (it's genuinely impassable, not just
+  unbuildable) until it's dealt with. Its own info panel offers two
+  ways to do that:
+  - **Rebuild** (your own rubble only) — reconstructs that exact
+    building, on that exact tile, at half price and half build time
+    (specifically half of whatever that instance actually cost and
+    took to build, not half of the current, possibly escalated price).
+    A credit-rebuilt building's first 3 completed ticks on each of its
+    production feeds yield nothing (still tick, just empty-handed) —
+    a bigger real-time setback on buildings with long cycles, like the
+    Quarry.
+  - **Clear Tile** — 5 gold for your own rubble, or 10 gold for an
+    opponent's (which additionally requires one of your troops
+    standing right next to it — you're paying soldiers to dig it out,
+    not waving a wand from across the map). This frees the tile for
+    anything from the normal build menu, at full price — clearing
+    **forfeits** that instance's half-price Rebuild credit for good,
+    so it's the right call when you'd rather build something else
+    there than restore what was lost. Clearing a path through an
+    opponent's rubble is the only way back into territory their own
+    wreckage is blocking.
+  Beginning construction, a repair, or a rebuild all ring out with the
+  same few hammer knocks.
 - **Castles defend themselves**: at level 1 (the only level so far),
   a castle is mechanically a stationed Archer — 10 attack, the same
   2.0–2.6s randomized attack speed, range 2, resolved through the same
