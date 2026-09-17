@@ -97,7 +97,8 @@ the AI's is always red regardless of which side you land on.
   beats that building's defense (see Combat, below); otherwise the
   attack is refused outright and the path-trace won't let you confirm
   it. Archers, which can't attack buildings at all, are blocked the
-  same way.
+  same way. Tapping an already-selected troop again swaps the open
+  panel to that troop's tile info instead of doing nothing.
 - Troops take a base 2 seconds to cross a plains-neutral tile; terrain
   scales that up or down: plains (faster), forest (slower), hills
   (slower — unless your own House sits on that hills tile, which
@@ -105,12 +106,35 @@ the AI's is always red regardless of which side you land on.
   rivers/lakes (impassable to ground troops, with the odd natural ford
   carved through), mountains (impassable to ground troops, aside from
   the odd lone peak or ridge to route around).
+- **Buildings don't block movement** — troops from either side can
+  walk straight through a tile with a building on it, just a little
+  slower (+1/8 on top of whatever else applies) since it's still
+  physically in the way. **Rubble is the opposite**: a destroyed
+  building's remains are genuinely impassable until someone clears (or
+  rebuilds) that tile — see Rubble below.
+- **Roads** are a dedicated building (2 stone + 4 wood, 4s to build)
+  that halve whatever movement penalty their tile's terrain would
+  otherwise cost, and boost Plains' speed buff by half again — a Road
+  through a Forest still nets faster than the raw Forest despite the
+  usual +1/8 building tax. That effect applies to any troop crossing
+  it, yours or the enemy's, regardless of who built it. Nothing else
+  can be built on a Road tile, and unlike every other building, a Road
+  can never be attacked and scores nothing for its first construction.
+  Since claiming a tile at all (even with nothing special on it)
+  extends your territory, a cheap flat-cost Road is a much better tool
+  than an escalating Farm trail for reaching a distant resource in a
+  favorable direction.
 - **Defend** doubles a troop's defense and roots it in place until you
   move it, attack, or it dies — it survives a combat engagement intact
   instead of being overridden, and you can switch a troop into it
   *mid-fight* without pulling it out of combat (it keeps trading blows,
   just tougher). Archers rely on it: they can strike at range 2 at any
   time, but can't fight an adjacent enemy unless they're defending.
+  Spearmen get a one-shot bonus from it instead: once per activation of
+  Defend, a Spearman can throw its spear at range 3 for a third more
+  damage than its normal melee swing — after that throw it's back to
+  fighting at melee range (still with doubled defense) until Defend is
+  toggled again.
   Any troop entering Defend — yours or the enemy's — rings out with a
   distinct metallic shield sound, deliberately audible to both players:
   an attentive opponent who hears it and keeps swinging anyway is about
@@ -151,8 +175,14 @@ the AI's is always red regardless of which side you land on.
   as it comes down** — a crumbled pile on its tile instead of the spot
   just going empty, so it's never ambiguous whether that patch of
   ground is buildable again yet. Rubble blocks any new construction
-  (and troop movement) until you pay **5 gold to Clear Tile**, an
-  action in the rubble's own info panel.
+  *and* troop movement (it's genuinely impassable, not just unbuildable)
+  until someone pays to **Clear Tile**, an action in the rubble's own
+  info panel: **5 gold** for your own rubble, or **10 gold** for an
+  opponent's, which additionally requires one of your troops to be
+  standing right next to it — you're paying soldiers to dig it out, not
+  waving a wand from across the map. Clearing a path through an
+  opponent's rubble is the only way back into territory their own
+  wreckage is blocking.
 - **Any destroyed building can be rebuilt at half price and half
   time** once its tile is cleared — specifically, half of whatever
   that exact instance cost and took to build, not half of the current
@@ -180,6 +210,7 @@ the AI's is always red regardless of which side you land on.
 | Quarry | Hills, adjacent to Mountains | 20 gold + 30 wood + 40 straw | 25 hp / 4 def | 1 stone per adjacent Mountain tile / 8s | |
 | Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | +2 food to any directly adjacent Farm |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
+| Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |
 
 ### Troops
 
@@ -187,6 +218,7 @@ the AI's is always red regardless of which side you land on.
 | --- | --- | --- | --- | --- |
 | Militia | 2 gold + 2 food | 5 atk / 5 def / 10 hp | 1.3–1.7s | Melee, can attack buildings |
 | Archer | 4 gold + 2 food + 5 wood | 10 atk / 7 def / 15 hp | 2.0–2.6s | Requires active wood production; strikes at range 2 always, needs Defend to fight adjacent; can't attack buildings |
+| Spearman | 4 gold + 4 wood + 2 stone | 20 atk / 10 def / 10 hp | 1.8–2.5s | Requires an active Quarry; melee like a Militia, but can throw its spear once per Defend activation at range 3 for 1/3 more damage; can attack buildings |
 
 ## Map
 

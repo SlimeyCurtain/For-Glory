@@ -1,9 +1,11 @@
 import {
   BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS,
   BASE_GOLD_PER_TICK,
+  BUILDING_MOVE_PENALTY_MULT,
   BUILDINGS,
   CASTLE_ATTACK,
   CLEAR_RUBBLE_COST,
+  CLEAR_RUBBLE_COST_ENEMY,
   FARM_FOOD,
   FARM_STRAW,
   FISHERS_HUT_FARM_FOOD_BONUS,
@@ -22,6 +24,7 @@ import {
   QUARRY_STONE_PER_MOUNTAIN,
   REPAIR_HP_PER_SEC,
   RESOURCE_TICK_MS,
+  roadAdjustedMoveMult,
   SCORE,
   STARTING_FOOD,
   STARTING_GOLD,
@@ -157,7 +160,7 @@ export class GameState {
     const t = this.tiles.get(key(tile));
     if (!t) return [];
     const hasFarm = this.buildingsOf(owner).some((b) => b.type === 'farm' && b.state === 'active');
-    const candidates: BuildingType[] = ['farm', 'lumberMill', 'quarry', 'fishersHut', 'house'];
+    const candidates: BuildingType[] = ['farm', 'lumberMill', 'quarry', 'fishersHut', 'house', 'road'];
     if (hasFarm) candidates.push('barracks');
 
     return candidates.filter((type) => {
@@ -276,8 +279,8 @@ export class GameState {
 
   attackableBuildings(attacker: PlayerId): Building[] {
     const opp = this.opponentOf(attacker);
-    // castle excluded: only siege units may target it (not yet implemented)
-    return this.buildingsOf(opp).filter((b) => b.type !== 'castle');
+    // castle excluded: only siege units may target it (not yet implemented). Anything unattackable (the Road) is excluded too.
+    return this.buildingsOf(opp).filter((b) => b.type !== 'castle' && !BUILDINGS[b.type].unattackable);
   }
 
   /** Enemy troops currently moving toward / pillaging one of `owner`'s buildings. */
@@ -358,13 +361,26 @@ export class GameState {
     this.grantRebuildCredit(b);
   }
 
-  /** Pays to clear a destroyed building's rubble, freeing its tile for new construction. */
+  /**
+   * Pays to clear a destroyed building's rubble, freeing its tile for new
+   * construction (and, since rubble also blocks foot traffic, for movement
+   * again too). Clearing your own rubble is a flat 5 gold. Clearing an
+   * opponent's costs 10 gold instead, and requires one of your troops to
+   * currently be standing adjacent to it -- you're paying to send soldiers
+   * to physically dig it out, not waving a wand from across the map.
+   */
   issueClearRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
     const b = this.buildings.get(buildingId);
-    if (!b || b.ownerId !== owner || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    if (!b || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    const isOwn = b.ownerId === owner;
+    if (!isOwn) {
+      const hasAdjacentTroop = this.troopsOf(owner).some((t) => hexDistance(t.tile, b.tile) === 1);
+      if (!hasAdjacentTroop) return { ok: false, reason: 'Need a troop adjacent to clear enemy rubble' };
+    }
+    const cost = isOwn ? CLEAR_RUBBLE_COST : CLEAR_RUBBLE_COST_ENEMY;
     const player = this.players[owner];
-    if (player.gold < CLEAR_RUBBLE_COST) return { ok: false, reason: 'Not enough gold' };
-    player.gold -= CLEAR_RUBBLE_COST;
+    if (player.gold < cost) return { ok: false, reason: 'Not enough gold' };
+    player.gold -= cost;
     this.buildings.delete(b.id);
     return { ok: true };
   }
@@ -391,13 +407,19 @@ export class GameState {
       const hasWood = this.buildingsOf(owner).some((x) => x.type === 'lumberMill' && x.state === 'active');
       if (!hasWood) return { ok: false, reason: 'Requires wood production' };
     }
+    if (def.requiresStoneProduction) {
+      const hasStone = this.buildingsOf(owner).some((x) => x.type === 'quarry' && x.state === 'active');
+      if (!hasStone) return { ok: false, reason: 'Requires an active Quarry' };
+    }
     const player = this.players[owner];
     const woodCost = def.woodCost ?? 0;
-    if (player.gold < def.goldCost || player.food < def.foodCost || player.wood < woodCost)
+    const stoneCost = def.stoneCost ?? 0;
+    if (player.gold < def.goldCost || player.food < def.foodCost || player.wood < woodCost || player.stone < stoneCost)
       return { ok: false, reason: 'Not enough resources' };
     player.gold -= def.goldCost;
     player.food -= def.foodCost;
     player.wood -= woodCost;
+    player.stone -= stoneCost;
     const trainTimeMs = this.trainTimeFor(b, def.trainTimeMs);
     b.training = { troopType: type, remainingMs: trainTimeMs, totalMs: trainTimeMs };
     return { ok: true };
@@ -418,6 +440,7 @@ export class GameState {
     if (!troop || !target || target.state === 'destroyed') return { ok: false, reason: 'Invalid target' };
     if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
     if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
+    if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
     if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
     if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
       return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
@@ -488,6 +511,7 @@ export class GameState {
       if (!target || target.state === 'destroyed') return { ok: false, reason: 'Invalid target' };
       if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
       if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
+      if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
       if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
       if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
         return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
@@ -505,12 +529,18 @@ export class GameState {
     return { ok: true };
   }
 
-  /** Defend: doubles the troop's defense and holds it in place until moved, attacked, or killed. */
+  /**
+   * Defend: doubles the troop's defense and holds it in place until moved,
+   * attacked, or killed. Also refreshes a Spearman's one-shot spear throw --
+   * each activation of Defend earns it back, regardless of whether the last
+   * one used it.
+   */
   issueDefendOrder(troopId: string) {
     const troop = this.troops.get(troopId);
     if (!troop) return;
     troop.path = null;
     troop.order = { kind: 'defend' };
+    troop.spearThrown = false;
   }
 
   issueHealOrder(troopId: string) {
@@ -594,10 +624,15 @@ export class GameState {
   }
 
   private pathFor(troop: Troop, dest: Offset): Offset[] | null {
+    // findPath always lets a route land on the goal tile even if that tile
+    // is in `blocked` (that exemption exists so a path can end adjacent-to
+    // or directly on an occupied tile in general) -- but rubble specifically
+    // must never be enterable at all, so a rubble destination is refused
+    // outright rather than relying on that exemption not applying here.
+    if (this.tileOccupiedByBuilding(dest)?.state === 'destroyed') return null;
     const blocked = new Set<string>();
     for (const b of this.buildings.values()) {
-      if (b.state === 'destroyed') continue;
-      if (b.tile.col === dest.col && b.tile.row === dest.row) continue;
+      if (b.state !== 'destroyed') continue;
       blocked.add(key(b.tile));
     }
     return findPath(troop.tile, dest, this.tiles, this.pathOptionsFor(troop, blocked));
@@ -609,29 +644,49 @@ export class GameState {
       canCrossMountains: def.canCrossMountains,
       canCrossRiver: false,
       blocked,
-      speedMultiplierFor: (o) => this.hillsSpeedMultiplierFor(troop.ownerId, o),
+      speedMultiplierFor: (o) => this.terrainSpeedMultiplierFor(troop.ownerId, o),
     };
   }
 
   /**
-   * A House built on hills removes that tile's slowdown for its own owner,
-   * but doubles the hills slowdown on every surrounding hills tile for
-   * anyone else -- a defensive home-turf effect.
+   * Combines every per-tile movement modifier beyond raw terrain: a House on
+   * Hills removes that tile's slowdown for its own owner but doubles it on
+   * every surrounding Hills tile for anyone else; a Road halves whatever
+   * penalty its terrain would otherwise cost (or boosts a speed buff by half
+   * again), for any troop regardless of who owns it; and any tile with a
+   * building at all -- Road included -- is a little slower to pass through
+   * on top of that, since it's still physically in the way even though it
+   * no longer blocks movement outright. Returned as a plain multiplier on
+   * top of the terrain's own `moveTimeMult` (which `tileCrossMs` applies
+   * separately), so 1 means "no change from terrain alone".
    */
-  private hillsSpeedMultiplierFor(troopOwnerId: PlayerId, tile: Offset): number {
-    if (this.terrainAt(tile) !== 'hills') return 1;
-    const onTile = this.tileOccupiedByBuilding(tile);
-    if (onTile?.type === 'house' && onTile.state === 'active' && onTile.ownerId === troopOwnerId) {
-      return 1 / TERRAIN.hills.moveTimeMult; // cancels the hills penalty entirely for the owner
+  private terrainSpeedMultiplierFor(troopOwnerId: PlayerId, tile: Offset): number {
+    const terrain = this.terrainAt(tile);
+    if (!terrain) return 1;
+    const baseMult = TERRAIN[terrain].moveTimeMult;
+    const occupant = this.tileOccupiedByBuilding(tile);
+    const activeOccupant = occupant?.state === 'active' ? occupant : null;
+
+    let effectiveMult = baseMult;
+    if (activeOccupant?.type === 'road') {
+      effectiveMult = roadAdjustedMoveMult(baseMult);
+    } else if (terrain === 'hills' && activeOccupant?.type === 'house' && activeOccupant.ownerId === troopOwnerId) {
+      effectiveMult = 1; // cancels the hills penalty entirely for the owner
     }
-    for (const n of neighborsOf(tile)) {
-      if (this.terrainAt(n) !== 'hills') continue;
-      const nb = this.tileOccupiedByBuilding(n);
-      if (nb?.type === 'house' && nb.state === 'active' && nb.ownerId !== troopOwnerId) {
-        return HOUSE_HILLS_ENEMY_DEBUFF_MULT;
+    if (activeOccupant) effectiveMult *= BUILDING_MOVE_PENALTY_MULT;
+
+    if (terrain === 'hills') {
+      for (const n of neighborsOf(tile)) {
+        if (this.terrainAt(n) !== 'hills') continue;
+        const nb = this.tileOccupiedByBuilding(n);
+        if (nb?.type === 'house' && nb.state === 'active' && nb.ownerId !== troopOwnerId) {
+          effectiveMult *= HOUSE_HILLS_ENEMY_DEBUFF_MULT;
+          break;
+        }
       }
     }
-    return 1;
+
+    return effectiveMult / baseMult;
   }
 
   /** Pick the passable neighbor tile of `target` closest to `from`. */
@@ -643,10 +698,10 @@ export class GameState {
   }
 
   /**
-   * Rubble physically blocks new construction (see canBuildAt) but not foot
-   * traffic -- it has to stay crossable or destroying a building would seal
-   * off whatever was behind it instead of opening a way through, and the
-   * owner might not even be able to afford clearing it right away.
+   * Buildings no longer block foot traffic at all -- troops (either
+   * player's) can pass straight through, just a little slower (see
+   * terrainSpeedMultiplierFor). Rubble is the opposite: it's an actual pile
+   * of debris, impassable until someone rebuilds or clears it.
    */
   private isTilePassableFor(troop: Troop, tile: Offset): boolean {
     const t = this.tiles.get(key(tile));
@@ -656,7 +711,7 @@ export class GameState {
     if (terrain.impassableForGroundTroops && !def.canCrossMountains) return false;
     if (terrain.requiresBoatOrBridge) return false;
     const occupant = this.tileOccupiedByBuilding(tile);
-    if (occupant && occupant.state !== 'destroyed') return false;
+    if (occupant?.state === 'destroyed') return false;
     return true;
   }
 
@@ -801,7 +856,7 @@ export class GameState {
         // completion time would see that sibling and wrongly conclude
         // neither one is "first" -- losing the point entirely.
         const key = `${b.ownerId}:${b.type}`;
-        if (!this.firstConstructionScored.has(key)) {
+        if (!BUILDINGS[b.type].noFirstConstructionScore && !this.firstConstructionScored.has(key)) {
           this.firstConstructionScored.add(key);
           this.awardScore(b.ownerId, SCORE.constructOrRepair, 'construct');
         }
@@ -844,6 +899,7 @@ export class GameState {
       segmentDurationMs: 0,
       order: { kind: 'idle' },
       attackCooldownMs: rollRange(def.attackSpeedMs),
+      spearThrown: false,
     };
     this.troops.set(troop.id, troop);
   }
@@ -967,13 +1023,25 @@ export class GameState {
     }
   }
 
-  /** Whether `attacker` (given its current stance) can strike a target at `targetTile` this tick. */
+  /**
+   * Whether `attacker` (given its current stance) can strike a target at
+   * `targetTile` this tick. Beyond its normal `attackRange`, a troop with a
+   * `spearThrow` (the Spearman) can still reach out to that ability's own
+   * range, but only while Defending and only if it hasn't already thrown
+   * this activation -- `tickCombat` is what actually consumes that one
+   * throw once it fires.
+   */
   private canStrike(attacker: Troop, targetTile: Offset): boolean {
     const def = TROOPS[attacker.type];
     const dist = hexDistance(attacker.tile, targetTile);
-    if (dist > def.attackRange) return false;
-    if (dist === 1 && def.meleeRequiresDefend && attacker.order.kind !== 'defend') return false;
-    return true;
+    if (dist <= def.attackRange) {
+      if (dist === 1 && def.meleeRequiresDefend && attacker.order.kind !== 'defend') return false;
+      return true;
+    }
+    if (def.spearThrow && attacker.order.kind === 'defend' && !attacker.spearThrown && dist <= def.spearThrow.range) {
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -986,8 +1054,13 @@ export class GameState {
    * nothing to either side either way. Returns a kill record for whichever
    * side's HP ran out, or null if neither did.
    */
-  private resolveStrike(attacker: Troop, defender: Troop, isRanged: boolean): { victimId: string; killerOwnerId: PlayerId } | null {
-    const atk = attacker.attack * this.terrainMultAt(attacker.tile);
+  private resolveStrike(
+    attacker: Troop,
+    defender: Troop,
+    isRanged: boolean,
+    attackMult: number = 1
+  ): { victimId: string; killerOwnerId: PlayerId } | null {
+    const atk = attacker.attack * attackMult * this.terrainMultAt(attacker.tile);
     const defMult = defender.order.kind === 'defend' ? 2 : 1; // Defend: double defense while immobile
     const def = defender.defense * this.terrainMultAt(defender.tile) * defMult;
     const diff = atk - def;
@@ -1038,14 +1111,20 @@ export class GameState {
         }
 
         if (aCan && a.attackCooldownMs <= 0) {
-          const k = this.resolveStrike(a, b, dist > 1);
-          a.attackCooldownMs = rollRange(TROOPS[a.type].attackSpeedMs);
+          const aDef = TROOPS[a.type];
+          const aIsSpearThrow = dist > aDef.attackRange && !!aDef.spearThrow;
+          if (aIsSpearThrow) a.spearThrown = true;
+          const k = this.resolveStrike(a, b, dist > 1, aIsSpearThrow ? aDef.spearThrow!.damageMult : 1);
+          a.attackCooldownMs = rollRange(aDef.attackSpeedMs);
           this.pendingCombatSwings++;
           if (k) kills.push(k);
         }
         if (b.hp > 0 && bCan && b.attackCooldownMs <= 0) {
-          const k = this.resolveStrike(b, a, dist > 1);
-          b.attackCooldownMs = rollRange(TROOPS[b.type].attackSpeedMs);
+          const bDef = TROOPS[b.type];
+          const bIsSpearThrow = dist > bDef.attackRange && !!bDef.spearThrow;
+          if (bIsSpearThrow) b.spearThrown = true;
+          const k = this.resolveStrike(b, a, dist > 1, bIsSpearThrow ? bDef.spearThrow!.damageMult : 1);
+          b.attackCooldownMs = rollRange(bDef.attackSpeedMs);
           this.pendingCombatSwings++;
           if (k) kills.push(k);
         }

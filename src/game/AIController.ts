@@ -208,11 +208,13 @@ export class AIController {
    * `type` needs a tile adjacent to some terrain the settlement's current
    * territory doesn't reach yet. Find that terrain's nearest occurrence on
    * the map, then claim whichever owned-but-unbuilt tile is closest to it --
-   * almost always a plain Farm, since forest/river/mountains grow out of
-   * plains and leave a plains ring around themselves. That one claim pushes
-   * territory a ring closer; repeating this over successive cycles walks
-   * the settlement toward the resource instead of leaving it permanently
-   * locked out of an entire branch of the tech tree.
+   * a Road when one's available, since it's a flat cost with no per-instance
+   * escalation and doubles as a speed boost, unlike a Farm trail whose price
+   * climbs every time (10, 12, 16, 22, ...) and eventually stalls out before
+   * it ever reaches the resource it was walking toward. That one claim
+   * pushes territory a ring closer; repeating this over successive cycles
+   * walks the settlement toward the resource instead of leaving it
+   * permanently locked out of an entire branch of the tech tree.
    */
   private tryExpandToward(type: BuildingType): boolean {
     const reqTerrain = BUILDINGS[type].requiresAdjacentTerrain?.[0];
@@ -222,7 +224,7 @@ export class AIController {
     const claimTile = this.state.closestBuildableTerritoryTile(this.me, target);
     if (!claimTile) return false;
     const options = this.state.availableBuildingsFor(this.me, claimTile);
-    const claimType = options.includes('farm') ? 'farm' : options[0];
+    const claimType = options.includes('road') ? 'road' : options.includes('farm') ? 'farm' : options[0];
     if (!claimType) return false;
     return this.state.issueBuild(this.me, claimTile, claimType).ok;
   }
@@ -241,10 +243,16 @@ export class AIController {
 
     const hasWood = this.state.buildingsOf(this.me).some((b) => b.type === 'lumberMill' && b.state === 'active');
     const hasFishersHut = this.state.buildingsOf(this.me).some((b) => b.type === 'fishersHut');
+    const hasQuarry = this.state.buildingsOf(this.me).some((b) => b.type === 'quarry' && b.state === 'active');
     // Wood is earmarked for the Fisher's Hut (the real gold fix) until it
     // exists -- Archers compete for that same wood, so stick to Militia
-    // until there's wood to spare.
-    const type: TroopType = hasWood && hasFishersHut && TROOPS.archer.requiresWoodProduction ? 'archer' : 'militia';
+    // until there's wood to spare. A Spearman outclasses both on raw stats,
+    // so once a Quarry can actually support one, prefer it outright.
+    const type: TroopType = hasQuarry
+      ? 'spearman'
+      : hasWood && hasFishersHut && TROOPS.archer.requiresWoodProduction
+        ? 'archer'
+        : 'militia';
 
     // A troop's upkeep is permanent -- it never expires the way a one-time
     // build cost does. Spending a resource's margin down to nothing here

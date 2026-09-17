@@ -196,6 +196,8 @@ export function drawBuildingIcon(g: G, type: BuildingType, x: number, y: number,
       return drawFishersHutIcon(g, x, y, ownerColor);
     case 'house':
       return drawHouseIcon(g, x, y, ownerColor);
+    case 'road':
+      return drawRoadIcon(g, x, y, ownerColor);
   }
 }
 
@@ -476,6 +478,19 @@ function drawHouseIcon(g: G, x: number, y: number, ownerColor: number) {
   g.strokeRect(x + 3, y - 1, 4.5, 4.5);
 }
 
+/** A short paved strip with a dashed centerline, in the owner's color so a Road reads as claimed ground rather than a neutral path. */
+function drawRoadIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(0x8a8478, 1);
+  g.fillRect(x - 15, y - 6, 30, 12);
+  g.lineStyle(1.5, shade(ownerColor, -0.2), 1);
+  g.strokeRect(x - 15, y - 6, 30, 12);
+
+  g.lineStyle(1.8, 0xe8e2d0, 0.9);
+  for (const dx of [-9, -1, 7]) {
+    g.lineBetween(x + dx, y, x + dx + 4, y);
+  }
+}
+
 // ---------- troop icons ----------
 
 export function drawMilitiaIcon(g: G, x: number, y: number, ownerColor: number) {
@@ -520,4 +535,24 @@ export function drawArcherIcon(g: G, x: number, y: number, ownerColor: number) {
   g.strokePath();
   g.lineStyle(0.8, 0xd8dce2, 0.9);
   g.lineBetween(x + 7.5, y - 4.5, x + 7.5, y + 4.5);
+}
+
+export function drawSpearmanIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(ownerColor, 1);
+  g.fillCircle(x, y + 2, 6.5);
+  g.lineStyle(1, shade(ownerColor, -0.4), 1);
+  g.strokeCircle(x, y + 2, 6.5);
+
+  g.fillStyle(0xe8b98a, 1);
+  g.fillCircle(x, y - 5, 3.2);
+
+  // a long spear held diagonally, well past the body on both ends -- reads
+  // as a reach weapon at a glance, distinct from the Militia's short club
+  g.lineStyle(2, 0x8a5a2a, 1);
+  g.beginPath();
+  g.moveTo(x - 8, y + 9);
+  g.lineTo(x + 9, y - 11);
+  g.strokePath();
+  g.fillStyle(0xc7cdd6, 1);
+  g.fillTriangle(x + 9, y - 11, x + 6, y - 6, x + 11, y - 6.5);
 }

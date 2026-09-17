@@ -1,4 +1,4 @@
-import { BUILDINGS, CLEAR_RUBBLE_COST, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
+import { BUILDINGS, CLEAR_RUBBLE_COST, CLEAR_RUBBLE_COST_ENEMY, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
 import type { ResourceKey, TerrainType, TroopType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
@@ -101,7 +101,7 @@ export class UIController {
       return;
     }
     const existing = this.state.tileOccupiedByBuilding(tile);
-    if (existing && existing.ownerId === HUMAN) {
+    if (existing && (existing.ownerId === HUMAN || existing.state === 'destroyed')) {
       this.onBuildingClick(existing);
       return;
     }
@@ -113,6 +113,14 @@ export class UIController {
   onBuildingClick(building: Building) {
     if (this.mode === 'pathTrace') {
       this.handlePathTraceBuilding(building);
+      return;
+    }
+    if (building.state === 'destroyed') {
+      // Rubble gets its own panel (with a Clear Tile option) regardless of
+      // whose it is -- clearing an opponent's is a real, if pricier, action.
+      this.selectedBuildingId = building.id;
+      this.mode = 'buildingInfo';
+      this.renderBuildingInfo();
       return;
     }
     if (building.ownerId !== HUMAN) {
@@ -130,6 +138,16 @@ export class UIController {
 
   onTroopClick(troop: Troop) {
     if (troop.ownerId !== HUMAN) return;
+    // Tapping the same troop again while its menu is already open swaps the
+    // panel to the tile it's standing on instead -- a second tap on the
+    // troop sprite is otherwise a dead click, and this gives a quick way to
+    // check the ground under it without hunting for empty space to tap.
+    if (this.mode === 'troop' && this.selectedTroopId === troop.id) {
+      this.selectedTile = troop.tile;
+      this.mode = 'tileInfo';
+      this.renderTileInfo();
+      return;
+    }
     this.selectedTroopId = troop.id;
     this.mode = 'troop';
     this.endPathTrace();
@@ -194,6 +212,10 @@ export class UIController {
     const player = this.state.players[HUMAN];
     const tileOwner = this.selectedTile ? this.state.tileOccupiedByBuilding(this.selectedTile)?.ownerId ?? null : null;
     const tileIsYours = this.selectedTile ? this.state.isOwnedTerritory(HUMAN, this.selectedTile) : null;
+    const hasAdjacentTroop =
+      b?.state === 'destroyed' && b.ownerId !== HUMAN
+        ? this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1)
+        : null;
     return JSON.stringify([
       this.mode,
       this.tracedPath.length,
@@ -202,6 +224,7 @@ export class UIController {
       b?.state,
       b?.training ? Math.ceil(b.training.remainingMs / 500) : null,
       b?.repairing,
+      hasAdjacentTroop,
       t ? Math.ceil(t.hp) : null,
       t?.order.kind,
       threats,
@@ -472,19 +495,28 @@ export class UIController {
   }
 
   private renderRubbleInfo(b: Building) {
-    this.openPanel(`Rubble (was ${BUILDINGS[b.type].name})`);
+    const isOwn = b.ownerId === HUMAN;
+    this.openPanel(`${isOwn ? 'Rubble' : 'Enemy Rubble'} (was ${BUILDINGS[b.type].name})`);
     this.el.panelBody.innerHTML = '';
 
     const hint = document.createElement('p');
     hint.className = 'hint';
-    hint.textContent = 'Blocks new construction until cleared.';
+    hint.textContent = 'Blocks construction and movement until cleared.';
     this.el.panelBody.appendChild(hint);
 
     const player = this.state.players[HUMAN];
+    const cost = isOwn ? CLEAR_RUBBLE_COST : CLEAR_RUBBLE_COST_ENEMY;
+    const hasAdjacentTroop = this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1);
+    if (!isOwn && !hasAdjacentTroop) {
+      const need = document.createElement('p');
+      need.className = 'hint';
+      need.textContent = 'Needs one of your troops standing adjacent to it.';
+      this.el.panelBody.appendChild(need);
+    }
     const btn = document.createElement('button');
     btn.className = 'action-btn';
-    btn.textContent = `Clear Tile — ${CLEAR_RUBBLE_COST}g`;
-    btn.disabled = player.gold < CLEAR_RUBBLE_COST;
+    btn.textContent = `Clear Tile — ${cost}g`;
+    btn.disabled = player.gold < cost || (!isOwn && !hasAdjacentTroop);
     btn.addEventListener('click', () => {
       const res = this.state.issueClearRubble(HUMAN, b.id);
       if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
@@ -532,11 +564,15 @@ export class UIController {
         this.el.panelBody.appendChild(p);
       } else {
         const hasWood = this.state.buildingsOf(HUMAN).some((x) => x.type === 'lumberMill' && x.state === 'active');
-        const trainable: TroopType[] = hasWood ? ['militia', 'archer'] : ['militia'];
+        const hasQuarry = this.state.buildingsOf(HUMAN).some((x) => x.type === 'quarry' && x.state === 'active');
+        const trainable: TroopType[] = ['militia'];
+        if (hasWood) trainable.push('archer');
+        if (hasQuarry) trainable.push('spearman');
         for (const type of trainable) {
           const def = TROOPS[type];
           const cost: Partial<Record<ResourceKey, number>> = { gold: def.goldCost, food: def.foodCost };
           if (def.woodCost) cost.wood = def.woodCost;
+          if (def.stoneCost) cost.stone = def.stoneCost;
           const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
           const btn = document.createElement('button');
           btn.className = 'action-btn';

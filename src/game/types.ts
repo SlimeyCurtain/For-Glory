@@ -81,6 +81,8 @@ export interface Troop {
   order: TroopOrder;
   /** Milliseconds until this troop's next discrete attack; re-rolled within its type's speed range after each swing. */
   attackCooldownMs: number;
+  /** Whether this troop's one-shot spear throw (Spearman only) has already fired since it last entered Defend. */
+  spearThrown: boolean;
 }
 
 export interface ScoreEvent {

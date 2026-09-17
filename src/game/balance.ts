@@ -61,7 +61,7 @@ export const BASE_GOLD_PER_TICK = 5;
 
 // ---------- buildings ----------
 
-export type BuildingType = 'castle' | 'farm' | 'barracks' | 'lumberMill' | 'quarry' | 'fishersHut' | 'house';
+export type BuildingType = 'castle' | 'farm' | 'barracks' | 'lumberMill' | 'quarry' | 'fishersHut' | 'house' | 'road';
 
 export interface BuildingDef {
   name: string;
@@ -89,6 +89,10 @@ export interface BuildingDef {
   goldCostForNth?: (n: number) => number;
   /** Short description of this building's unique behavior, shown in its info panel. */
   specialTrait?: string;
+  /** Can never be targeted by an attack order, siege or otherwise (currently: the Road). */
+  unattackable?: boolean;
+  /** Skips the usual "first-ever construction of this type" score (currently: the Road). */
+  noFirstConstructionScore?: boolean;
 }
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
@@ -175,12 +179,44 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     specialTrait:
       'On Hills: removes its own hills slowdown for you, doubles it for enemies nearby. On Forest: +1 Wood/6s. Near Mountains: +1 Gold/5s for -1 more Stone upkeep (Forest is immune to Mountain suppression).',
   },
+  road: {
+    name: 'Road',
+    goldCost: 0,
+    foodCost: 0,
+    woodCost: 4,
+    stoneCost: 2,
+    buildTimeMs: 4000,
+    maxHp: 10,
+    defense: 999,
+    allowedTerrain: ['plains', 'forest', 'hills'],
+    unattackable: true,
+    noFirstConstructionScore: true,
+    specialTrait:
+      'Halves whatever movement penalty its terrain would otherwise cost, and boosts a Plains speed buff by half again. Applies to any troop crossing it, friendly or enemy. Nothing else may be built on a Road tile.',
+  },
 };
 
 export const MIN_BUILD_TIME_MS = 1000;
 
 /** Flat gold cost to clear a destroyed building's rubble before anything new can go up on that tile. */
 export const CLEAR_RUBBLE_COST = 5;
+/** Clearing someone else's rubble costs more, and additionally requires a troop of yours adjacent to it. */
+export const CLEAR_RUBBLE_COST_ENEMY = 10;
+
+/** Any tile with a building on it (including a Road) is a little slower to pass through, on top of whatever terrain/Road math already applies. */
+export const BUILDING_MOVE_PENALTY_MULT = 1.125;
+
+/**
+ * A Road halves whatever penalty a terrain tile would otherwise cost (e.g.
+ * Forest's 2.0x becomes 1.5x), and boosts a terrain's speed *buff* (a
+ * sub-1.0 multiplier, currently only Plains) by half again in the other
+ * direction (0.8x becomes 0.7x). Neutral terrain (1.0x) is untouched.
+ */
+export function roadAdjustedMoveMult(baseMult: number): number {
+  if (baseMult > 1) return 1 + (baseMult - 1) * 0.5;
+  if (baseMult < 1) return 1 - (1 - baseMult) * 1.5;
+  return baseMult;
+}
 
 // ---------- building production rates ----------
 
@@ -211,7 +247,7 @@ export const BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS = 3000;
 
 // ---------- troops ----------
 
-export type TroopType = 'militia' | 'archer';
+export type TroopType = 'militia' | 'archer' | 'spearman';
 
 /** A randomized window an attack cooldown is rolled from, so e.g. two archers trading blows don't always land in lockstep. */
 export interface SpeedRange {
@@ -224,6 +260,7 @@ export interface TroopDef {
   goldCost: number;
   foodCost: number;
   woodCost?: number;
+  stoneCost?: number;
   trainTimeMs: number;
   maxHp: number;
   attack: number;
@@ -239,8 +276,16 @@ export interface TroopDef {
   upkeep: Partial<Record<ResourceKey, number>>;
   /** Player must have active wood production to train this troop. */
   requiresWoodProduction?: boolean;
+  /** Player must have an active Quarry to train this troop. */
+  requiresStoneProduction?: boolean;
   /** Milliseconds between this troop's discrete attacks, re-rolled after every swing. */
   attackSpeedMs: SpeedRange;
+  /**
+   * A one-shot ranged attack usable only once per Defend activation (see
+   * `Troop.spearThrown`) -- currently just the Spearman. `damageMult`
+   * multiplies its own `attack` stat for that single throw only.
+   */
+  spearThrow?: { range: number; damageMult: number };
   /** Short description of this troop's unique behavior, shown in its info panel. */
   specialTrait?: string;
 }
@@ -279,6 +324,26 @@ export const TROOPS: Record<TroopType, TroopDef> = {
     requiresWoodProduction: true,
     attackSpeedMs: { min: 2000, max: 2600 },
     specialTrait: 'Strikes at range 2 always. Cannot fight at range 1 unless Defending.',
+  },
+  spearman: {
+    name: 'Spearman',
+    goldCost: 4,
+    foodCost: 0,
+    woodCost: 4,
+    stoneCost: 2,
+    trainTimeMs: 6000,
+    maxHp: 10,
+    attack: 20,
+    defense: 10,
+    isSiege: false,
+    canCrossMountains: false,
+    attackRange: 1,
+    canAttackBuildings: true,
+    upkeep: { gold: -2, wood: -1, stone: -1 },
+    requiresStoneProduction: true,
+    attackSpeedMs: { min: 1800, max: 2500 },
+    spearThrow: { range: 3, damageMult: 4 / 3 },
+    specialTrait: 'While Defending, can throw its spear once at range 3 for 1/3 more damage than its melee attack.',
   },
 };
 
