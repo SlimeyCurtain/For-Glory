@@ -339,7 +339,7 @@ export const TROOPS: Record<TroopType, TroopDef> = {
     canCrossMountains: false,
     attackRange: 1,
     canAttackBuildings: true,
-    upkeep: { gold: -2, wood: -1, stone: -1 },
+    upkeep: { gold: -2, stone: -1 },
     requiresStoneProduction: true,
     attackSpeedMs: { min: 1800, max: 2500 },
     spearThrow: { range: 3, damageMult: 4 / 3 },
