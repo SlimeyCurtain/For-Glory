@@ -28,6 +28,13 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
+const OBSCURED_POLL_MS = 100;
+
+/** True whenever the match is somewhere the player can't see or touch it: a backgrounded tab, or (on mobile) held in portrait behind the rotate prompt. Desktop mode has no portrait lock, so orientation only counts in mobile mode. */
+function isObscured(): boolean {
+  return document.hidden || (document.body.classList.contains('mobile-mode') && window.matchMedia('(orientation: portrait)').matches);
+}
+
 function el<T extends HTMLElement = HTMLElement>(id: string): T {
   const found = document.getElementById(id);
   if (!found) throw new Error(`Missing #${id}`);
@@ -68,18 +75,44 @@ export class GameFlow {
    * fully suspended on an app-switch, just heavily throttled) while some
    * part of the page's touch/pointer state gets left stuck on return --
    * the match looked "alive" (clock and resources still moving) but taps
-   * stopped doing anything. Freezing the sim the instant the page goes
-   * hidden, and only unfreezing once it's genuinely visible again, avoids
-   * that window entirely: nothing to get stuck mid-gesture, and the match
-   * simply picks back up where it left off, like a pause. Only wired up
-   * once the intro countdown hands off control (so backgrounding during
-   * "3, 2, 1, BEGIN" can't unfreeze it early) and torn down on exit so a
-   * rematch doesn't stack a second listener.
+   * stopped doing anything. Rotating to portrait mid-match is the same
+   * problem from a different angle: the board is hidden behind the rotate
+   * prompt, but the tab itself is still fully foregrounded, so nothing
+   * about that alone pauses anything. Freezing the sim the instant either
+   * happens, and only unfreezing once the match is genuinely visible AND
+   * landscape again, closes both: nothing to get stuck mid-gesture, and
+   * the match simply picks back up where it left off, like a pause. Only
+   * wired up once the intro countdown hands off control (the countdown
+   * itself is paused the same way -- see pausableSleep) and torn down on
+   * exit so a rematch doesn't stack a second listener.
    */
-  private handleVisibilityChange = () => {
+  private handleObscuredChange = () => {
     if (!this.current || this.current.state.gameOver) return;
-    this.current.scene.setFrozen(document.hidden);
+    this.current.scene.setFrozen(isObscured());
   };
+
+  private orientationQuery = window.matchMedia('(orientation: portrait)');
+
+  /**
+   * A version of `sleep` that stops counting down whenever the page is
+   * obscured (see `isObscured`) instead of resolving on a fixed wall-clock
+   * delay -- used for the intro countdown specifically, so a player who
+   * rotates to portrait (or backgrounds the tab) mid-countdown can't come
+   * back to find "3, 2, 1, BEGIN" already finished and the match already
+   * running without them.
+   */
+  private async pausableSleep(ms: number): Promise<void> {
+    let remaining = ms;
+    while (remaining > 0) {
+      const step = Math.min(OBSCURED_POLL_MS, remaining);
+      await sleep(step);
+      if (!isObscured()) remaining -= step;
+    }
+  }
+
+  private async waitUntilUnobscured(): Promise<void> {
+    while (isObscured()) await sleep(OBSCURED_POLL_MS);
+  }
 
   private titleScreen = el('title-screen');
   private startBtn = el<HTMLButtonElement>('title-start');
@@ -131,7 +164,8 @@ export class GameFlow {
     await this.runCountdown();
     handles.scene.setFrozen(false);
     startAmbientLoop();
-    document.addEventListener('visibilitychange', this.handleVisibilityChange);
+    document.addEventListener('visibilitychange', this.handleObscuredChange);
+    this.orientationQuery.addEventListener('change', this.handleObscuredChange);
   }
 
   private async runCountdown() {
@@ -142,7 +176,7 @@ export class GameFlow {
     this.countdownTimerFly.style.removeProperty('--dy');
     this.countdownTimerFly.style.removeProperty('--scale');
     this.countdownTimerFly.classList.add('show-center');
-    await sleep(400);
+    await this.pausableSleep(400);
 
     if (hudTimer) {
       const hudRect = hudTimer.getBoundingClientRect();
@@ -155,7 +189,7 @@ export class GameFlow {
       this.countdownTimerFly.style.setProperty('--scale', scale.toString());
     }
     this.countdownTimerFly.classList.add('fly');
-    await sleep(TIMER_FLY_MS);
+    await this.pausableSleep(TIMER_FLY_MS);
     this.countdownTimerFly.classList.remove('show-center', 'fly');
 
     for (const word of ['3', '2', '1', 'BEGIN']) {
@@ -163,24 +197,23 @@ export class GameFlow {
     }
   }
 
-  private playCountdownWord(text: string): Promise<void> {
-    return new Promise((resolve) => {
-      this.countdownWord.textContent = text;
-      if (text === 'BEGIN') playCountdownGo();
-      else playCountdownTick();
-      this.countdownWord.classList.remove('grow-shrink');
-      void this.countdownWord.offsetWidth; // force reflow so the animation restarts
-      this.countdownWord.classList.add('grow-shrink');
-      window.setTimeout(() => {
-        this.countdownWord.classList.remove('grow-shrink');
-        this.countdownWord.textContent = '';
-        resolve();
-      }, COUNTDOWN_STEP_MS);
-    });
+  /** Each word only starts once the page is genuinely visible and landscape, and the pause between words stops counting down if that stops being true partway through -- see pausableSleep. */
+  private async playCountdownWord(text: string): Promise<void> {
+    await this.waitUntilUnobscured();
+    this.countdownWord.textContent = text;
+    if (text === 'BEGIN') playCountdownGo();
+    else playCountdownTick();
+    this.countdownWord.classList.remove('grow-shrink');
+    void this.countdownWord.offsetWidth; // force reflow so the animation restarts
+    this.countdownWord.classList.add('grow-shrink');
+    await this.pausableSleep(COUNTDOWN_STEP_MS);
+    this.countdownWord.classList.remove('grow-shrink');
+    this.countdownWord.textContent = '';
   }
 
   private async runEndSequence(state: GameState) {
-    document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+    document.removeEventListener('visibilitychange', this.handleObscuredChange);
+    this.orientationQuery.removeEventListener('change', this.handleObscuredChange);
     stopAmbientLoop();
     document.body.classList.add('darken', 'hud-hidden');
     await sleep(DARKEN_MS);

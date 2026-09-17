@@ -87,15 +87,20 @@ body.desktop-mode #app {
    part of the Phaser canvas) and all sit at a higher z-index than
    #rotate-overlay, so without listing them here too they'd render right on
    top of the rotate prompt instead of being hidden by it -- letting Start
-   get pressed, and the countdown play out, while still in portrait. Desktop
-   mode skips this entirely -- a resizable browser window going narrow/tall
-   isn't the same situation as a phone held upright, and nobody can
-   "rotate" a monitor. */
+   get pressed, and the countdown play out, while still in portrait.
+   #platform-toggle is hidden here too: the rotate screen means "rotate
+   your device," full stop -- not "or tap this corner button instead" --
+   and the JS side backs this up (GameFlow.pausableSleep/isObscured), since
+   hiding the countdown alone wouldn't stop its real timers from finishing
+   in the background. Desktop mode skips this entirely -- a resizable
+   browser window going narrow/tall isn't the same situation as a phone
+   held upright, and nobody can "rotate" a monitor. */
 @media (orientation: portrait) {
   body.mobile-mode #app,
   body.mobile-mode #title-screen,
   body.mobile-mode #countdown-overlay,
-  body.mobile-mode #victory-overlay {
+  body.mobile-mode #victory-overlay,
+  body.mobile-mode #platform-toggle {
     display: none;
   }
   body.mobile-mode #rotate-overlay {

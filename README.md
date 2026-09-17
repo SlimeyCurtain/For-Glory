@@ -249,19 +249,24 @@ the title screen, that same button sits enlarged beneath the Start
 button instead of tucked in a corner, then animates down into its
 normal pill shape the moment you press Start. **Mobile mode** goes
 edge-to-edge like a phone app and shows a "rotate your device" prompt
-in portrait — that applies everywhere, not just mid-match: the title
-screen and the intro countdown are just as locked out of portrait as
-the game board itself, so there's no way to start (or watch the
-3-2-1-BEGIN countdown play out) while still holding the phone upright.
-**Desktop mode** presents the game as a centered, shadowed panel
-against a dark background instead of bleeding to the browser window's
-edges, and never nags about orientation (nobody rotates a monitor).
+in portrait, with nothing else on screen — the mode toggle included —
+so there's genuinely nothing to do but rotate. That applies everywhere,
+not just mid-match: the title screen and the intro countdown are just
+as locked out of portrait as the game board itself, so there's no way
+to start (or watch the 3-2-1-BEGIN countdown play out) while still
+holding the phone upright. **Desktop mode** presents the game as a
+centered, shadowed panel against a dark background instead of bleeding
+to the browser window's edges, and never nags about orientation
+(nobody rotates a monitor).
 
-A backgrounded mobile tab (switching apps mid-match, then coming back)
-freezes the match the instant the page goes hidden and picks back up
-exactly where it left off once it's visible again — the 5-minute clock
-and everything else just pauses, rather than the match continuing to
-run somewhere the player can't see or interact with it.
+Whatever's keeping the match out of view — a backgrounded tab, or (on
+mobile) portrait behind the rotate prompt — freezes it the instant that
+starts and picks back up exactly where it left off once it's visible
+*and* landscape again, including partway through the intro countdown
+itself (rotate away mid-"3-2-1" and it resumes on the same number
+instead of finishing in the background). The 5-minute clock and
+everything else just pauses, rather than the match continuing to run
+somewhere the player can't see or interact with it.
 
 ## Not yet built (intentionally out of scope for this pass)
 
