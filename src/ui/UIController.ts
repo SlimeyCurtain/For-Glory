@@ -46,12 +46,8 @@ export class UIController {
   private selectedTile: Offset | null = null;
   private selectedTroopId: string | null = null;
   private selectedBuildingId: string | null = null;
-  private mode: 'none' | 'tileInfo' | 'build' | 'buildingInfo' | 'troop' | 'pathTrace' | 'interceptList' | 'boatPlacement' = 'none';
+  private mode: 'none' | 'tileInfo' | 'build' | 'buildingInfo' | 'troop' | 'moveTarget' | 'boatPlacement' = 'none';
 
-  /** Path the player has traced by hand for the selected troop, and the enemy
-   * building (if any) it currently ends next to. */
-  private tracedPath: Offset[] = [];
-  private pendingAttackTargetId: string | null = null;
   private lastLiveSignature: string | null = null;
   /** The Fisher's Hut whose eligible river tiles are currently glowing on the map, while `mode === 'boatPlacement'`. */
   private boatPlacementHutId: string | null = null;
@@ -98,12 +94,12 @@ export class UIController {
   }
 
   onTileClick(tile: Offset) {
-    if (this.mode === 'boatPlacement') {
-      this.handleBoatPlacementTile(tile);
+    if (this.mode === 'moveTarget') {
+      this.handleMoveTargetTap(tile);
       return;
     }
-    if (this.mode === 'pathTrace') {
-      this.handlePathTraceTile(tile);
+    if (this.mode === 'boatPlacement') {
+      this.handleBoatPlacementTile(tile);
       return;
     }
     const existing = this.state.tileOccupiedByBuilding(tile);
@@ -159,11 +155,11 @@ export class UIController {
   }
 
   onBuildingClick(building: Building) {
-    if (this.mode === 'boatPlacement') this.exitBoatPlacement();
-    if (this.mode === 'pathTrace') {
-      this.handlePathTraceBuilding(building);
+    if (this.mode === 'moveTarget') {
+      this.handleMoveTargetTap(building.tile);
       return;
     }
+    if (this.mode === 'boatPlacement') this.exitBoatPlacement();
     if (building.state === 'destroyed') {
       // Rubble gets its own panel (with a Clear Tile option) regardless of
       // whose it is -- clearing an opponent's is a real, if pricier, action.
@@ -186,6 +182,10 @@ export class UIController {
   }
 
   onTroopClick(troop: Troop) {
+    if (this.mode === 'moveTarget') {
+      this.handleMoveTargetTap(troop.tile);
+      return;
+    }
     if (troop.ownerId !== HUMAN) return;
     if (this.mode === 'boatPlacement') this.exitBoatPlacement();
     // Tapping the same troop again while its menu is already open swaps the
@@ -200,7 +200,7 @@ export class UIController {
     }
     this.selectedTroopId = troop.id;
     this.mode = 'troop';
-    this.endPathTrace();
+    this.exitMoveMode();
     this.renderTroopMenu();
   }
 
@@ -246,19 +246,13 @@ export class UIController {
 
     if (this.mode === 'tileInfo') this.renderTileInfo();
     if (this.mode === 'buildingInfo') this.renderBuildingInfo();
-    if (this.mode === 'interceptList') this.renderInterceptList();
     if (this.mode === 'troop') this.renderTroopMenu();
-    if (this.mode === 'pathTrace') {
-      const t = this.state.troops.get(this.selectedTroopId ?? '');
-      if (t) this.renderPathTracePanel(t);
-      else this.closePanel();
-    }
+    if (this.mode === 'moveTarget' && !this.state.troops.get(this.selectedTroopId ?? '')) this.closePanel();
   }
 
   private computeLiveSignature(): string {
     const b = this.selectedBuildingId ? this.state.buildings.get(this.selectedBuildingId) : null;
     const t = this.selectedTroopId ? this.state.troops.get(this.selectedTroopId) : null;
-    const threats = this.mode === 'troop' || this.mode === 'pathTrace' ? this.state.incomingThreatsFor(HUMAN).length : 0;
     const player = this.state.players[HUMAN];
     const tileOwner = this.selectedTile ? this.state.tileOccupiedByBuilding(this.selectedTile)?.ownerId ?? null : null;
     const tileIsYours = this.selectedTile ? this.state.isOwnedTerritory(HUMAN, this.selectedTile) : null;
@@ -269,8 +263,6 @@ export class UIController {
     const eligibleBoatTiles = b?.type === 'fishersHut' ? this.state.eligibleFishingBoatTiles(b).length : null;
     return JSON.stringify([
       this.mode,
-      this.tracedPath.length,
-      this.pendingAttackTargetId,
       b ? Math.ceil(b.hp) : null,
       b?.state,
       b?.training ? Math.ceil(b.training.remainingMs / 500) : null,
@@ -279,7 +271,6 @@ export class UIController {
       eligibleBoatTiles,
       t ? Math.ceil(t.hp) : null,
       t?.order.kind,
-      threats,
       tileOwner,
       tileIsYours,
       Math.floor(player.gold),
@@ -296,7 +287,7 @@ export class UIController {
     this.selectedBuildingId = null;
     this.selectedTroopId = null;
     this.lastLiveSignature = null;
-    this.endPathTrace();
+    this.exitMoveMode();
     this.exitBoatPlacement();
     this.el.panel.classList.add('hidden');
   }
@@ -328,126 +319,56 @@ export class UIController {
     this.el.panelBody.appendChild(box);
   }
 
-  // ---------- path tracing (player-drawn movement/attack routes) ----------
+  // ---------- move targeting (tap anywhere, auto-pathfound) ----------
 
-  private endPathTrace() {
-    this.tracedPath = [];
-    this.pendingAttackTargetId = null;
+  private exitMoveMode() {
     this.mapView.clearPathPreview();
   }
 
-  private handlePathTraceTile(tile: Offset) {
+  /**
+   * The only interaction while a troop is in Move mode: wherever the player
+   * taps next (empty ground, a building, another troop -- friend or foe
+   * alike, per "tap any tile") becomes the new destination, and the
+   * simplest route there is pathfound automatically. There's no separate
+   * attack step to confirm -- if that route ends up crossing or landing on
+   * an enemy building or troop, engaging it happens on its own once the
+   * troop's actually close enough (see GameState.autoBuildingTargetFor and
+   * tickCombat). Mode stays active afterward so tapping elsewhere again
+   * redirects the same troop mid-journey.
+   */
+  private handleMoveTargetTap(tile: Offset) {
     const t = this.state.troops.get(this.selectedTroopId ?? '');
     if (!t) {
       this.closePanel();
       return;
     }
-
-    if (tile.col === t.tile.col && tile.row === t.tile.row) {
-      this.tracedPath = [];
-      this.pendingAttackTargetId = null;
-      this.refreshPathTrace(t);
+    const res = this.state.issueMoveTo(t.id, tile);
+    if (!res.ok) {
+      this.flashBanner(res.reason ?? 'No path there');
       return;
     }
-
-    const idxInPath = this.tracedPath.findIndex((p) => p.col === tile.col && p.row === tile.row);
-    if (idxInPath !== -1) {
-      this.tracedPath = this.tracedPath.slice(0, idxInPath + 1);
-      this.pendingAttackTargetId = null;
-      this.refreshPathTrace(t);
-      return;
-    }
-
-    if (this.state.isValidNextStep(t, this.tracedPath, tile)) {
-      this.tracedPath.push(tile);
-      this.pendingAttackTargetId = null;
-      this.refreshPathTrace(t);
-      return;
-    }
-
-    this.flashBanner('Tap an adjacent open tile to extend the path');
+    this.mapView.setPathPreview(t.tile, t.path ?? []);
+    this.renderMoveTargetPanel(t);
   }
 
-  private handlePathTraceBuilding(building: Building) {
-    const t = this.state.troops.get(this.selectedTroopId ?? '');
-    if (!t) {
-      this.closePanel();
-      return;
-    }
-    if (building.ownerId === HUMAN) {
-      this.flashBanner("That's your own building");
-      return;
-    }
-    if (building.type === 'castle') {
-      this.flashBanner('Castle requires siege units');
-      return;
-    }
-    if (!TROOPS[t.type].canAttackBuildings) {
-      this.flashBanner(`${TROOPS[t.type].name} cannot attack buildings`);
-      return;
-    }
-    const pathEnd = this.tracedPath.length > 0 ? this.tracedPath[this.tracedPath.length - 1] : t.tile;
-    if (hexDistance(pathEnd, building.tile) !== 1) {
-      this.flashBanner('Trace your path next to that building first');
-      return;
-    }
-    this.pendingAttackTargetId = building.id;
-    this.refreshPathTrace(t);
-  }
-
-  private refreshPathTrace(t: Troop) {
-    this.mapView.setPathPreview(t.tile, this.tracedPath);
-    this.renderPathTracePanel(t);
-  }
-
-  private renderPathTracePanel(t: Troop) {
-    const targetBuilding = this.pendingAttackTargetId ? this.state.buildings.get(this.pendingAttackTargetId) : null;
-    this.openPanel(targetBuilding ? `Attack ${labelName(targetBuilding)}?` : 'Trace a path');
+  private renderMoveTargetPanel(t: Troop) {
+    this.openPanel(`${TROOPS[t.type].name} — Move`);
     this.el.panelBody.innerHTML = '';
 
     const hint = document.createElement('p');
     hint.className = 'hint';
-    const steps = this.tracedPath.length;
-    if (targetBuilding) {
-      hint.textContent = `Route drawn (${steps} tile${steps === 1 ? '' : 's'}). Confirm to march in and pillage ${labelName(targetBuilding)}.`;
-    } else if (steps === 0) {
-      hint.textContent = 'Tap adjacent tiles to draw a route for this troop. Tap an enemy building once your path reaches next to it.';
-    } else {
-      hint.textContent = `Route drawn (${steps} tile${steps === 1 ? '' : 's'}). Keep tapping to extend it, tap a drawn tile to rewind, or confirm to move here.`;
-    }
+    hint.textContent = 'Tap anywhere on the board to send this troop there. Tap elsewhere again to redirect it mid-route.';
     this.el.panelBody.appendChild(hint);
 
-    const confirmBtn = document.createElement('button');
-    confirmBtn.className = 'action-btn';
-    confirmBtn.disabled = this.tracedPath.length === 0;
-    confirmBtn.textContent = targetBuilding ? 'Confirm Attack' : 'Confirm Move';
-    confirmBtn.addEventListener('click', () => {
-      const res = this.state.issueManualMove(t.id, this.tracedPath, this.pendingAttackTargetId ?? undefined);
-      if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
-      this.closePanel();
-    });
-    this.el.panelBody.appendChild(confirmBtn);
-
-    const undoBtn = document.createElement('button');
-    undoBtn.className = 'action-btn secondary';
-    undoBtn.textContent = 'Undo last step';
-    undoBtn.disabled = this.tracedPath.length === 0;
-    undoBtn.addEventListener('click', () => {
-      this.tracedPath.pop();
-      this.pendingAttackTargetId = null;
-      this.refreshPathTrace(t);
-    });
-    this.el.panelBody.appendChild(undoBtn);
-
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'action-btn secondary';
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.addEventListener('click', () => {
-      this.endPathTrace();
+    const doneBtn = document.createElement('button');
+    doneBtn.className = 'action-btn secondary';
+    doneBtn.textContent = 'Done';
+    doneBtn.addEventListener('click', () => {
+      this.exitMoveMode();
       this.mode = 'troop';
       this.renderTroopMenu();
     });
-    this.el.panelBody.appendChild(cancelBtn);
+    this.el.panelBody.appendChild(doneBtn);
   }
 
   // ---------- panels ----------
@@ -719,12 +640,10 @@ export class UIController {
 
     const moveBtn = document.createElement('button');
     moveBtn.className = 'action-btn';
-    moveBtn.textContent = 'Move / Attack';
+    moveBtn.textContent = 'Move';
     moveBtn.addEventListener('click', () => {
-      this.mode = 'pathTrace';
-      this.tracedPath = [];
-      this.pendingAttackTargetId = null;
-      this.refreshPathTrace(t);
+      this.mode = 'moveTarget';
+      this.renderMoveTargetPanel(t);
     });
     this.el.panelBody.appendChild(moveBtn);
 
@@ -745,55 +664,6 @@ export class UIController {
       this.closePanel();
     });
     this.el.panelBody.appendChild(healBtn);
-
-    const threats = this.state.incomingThreatsFor(HUMAN);
-    if (threats.length > 0) {
-      const interceptBtn = document.createElement('button');
-      interceptBtn.className = 'action-btn intercept-btn';
-      interceptBtn.textContent = `Intercept (${threats.length} incoming)`;
-      interceptBtn.addEventListener('click', () => {
-        this.mode = 'interceptList';
-        this.renderInterceptList();
-      });
-      this.el.panelBody.appendChild(interceptBtn);
-    }
-  }
-
-  private renderInterceptList() {
-    if (!this.selectedTroopId) return;
-    const t = this.state.troops.get(this.selectedTroopId);
-    if (!t) {
-      this.closePanel();
-      return;
-    }
-    this.openPanel('Choose a threat to intercept');
-    this.el.panelBody.innerHTML = '';
-    const threats = this.state.incomingThreatsFor(HUMAN);
-    if (threats.length === 0) {
-      this.closePanel();
-      return;
-    }
-    for (const enemy of threats) {
-      const targetBuildingId = enemy.order.kind === 'moveToAttack' || enemy.order.kind === 'pillaging' ? enemy.order.targetBuildingId : null;
-      const targetBuilding = targetBuildingId ? this.state.buildings.get(targetBuildingId) : null;
-      const btn = document.createElement('button');
-      btn.className = 'action-btn';
-      btn.textContent = `Enemy ${TROOPS[enemy.type].name} → ${targetBuilding ? labelName(targetBuilding) : 'unknown'}`;
-      btn.addEventListener('click', () => {
-        const res = this.state.issueInterceptOrder(t.id, enemy.id);
-        if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
-        this.closePanel();
-      });
-      this.el.panelBody.appendChild(btn);
-    }
-    const backBtn = document.createElement('button');
-    backBtn.className = 'action-btn secondary';
-    backBtn.textContent = 'Back';
-    backBtn.addEventListener('click', () => {
-      this.mode = 'troop';
-      this.renderTroopMenu();
-    });
-    this.el.panelBody.appendChild(backBtn);
   }
 
 }
@@ -823,12 +693,8 @@ function orderLabel(t: Troop): string {
   switch (t.order.kind) {
     case 'idle':
       return 'idle';
-    case 'moveToAttack':
-      return 'marching to attack';
     case 'pillaging':
       return 'pillaging';
-    case 'moveToIntercept':
-      return 'intercepting';
     case 'fighting':
       return 'in combat';
     case 'defend':

@@ -84,7 +84,6 @@ export class AIController {
     this.maybeBuild();
     this.maybeTrain();
     this.maybeAttack();
-    this.maybeIntercept();
     this.maybeRepair();
   }
 
@@ -292,18 +291,10 @@ export class AIController {
     // building happened to be picked at random.
     const target = [...targets].sort((a, b) => a.hp - b.hp || BUILDINGS[a.type].defense - BUILDINGS[b.type].defense)[0];
     for (const troop of idleTroops) {
-      this.state.issueAttackOrder(troop.id, target.id);
-    }
-  }
-
-  private maybeIntercept() {
-    const threats = this.state.incomingThreatsFor(this.me);
-    if (threats.length === 0) return;
-    const idleTroops = this.state.troopsOf(this.me).filter((t) => t.order.kind === 'idle');
-    for (const threat of threats) {
-      const defender = idleTroops.pop();
-      if (!defender) break;
-      this.state.issueInterceptOrder(defender.id, threat.id);
+      // No separate "attack" order anymore -- moving straight onto the
+      // target's own tile is what starts the fight (see
+      // GameState.autoBuildingTargetFor), once the troop actually arrives.
+      this.state.issueMoveTo(troop.id, target.tile);
     }
   }
 

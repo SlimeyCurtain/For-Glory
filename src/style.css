@@ -273,10 +273,6 @@ body.desktop-mode #app {
   background: #3a3f4b;
 }
 
-.action-btn.intercept-btn {
-  background: #dc2626;
-}
-
 #panel-close {
   margin-top: 10px;
   background: transparent;

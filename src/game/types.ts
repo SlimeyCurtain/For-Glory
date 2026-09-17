@@ -57,9 +57,7 @@ export interface Building {
 
 export type TroopOrder =
   | { kind: 'idle' }
-  | { kind: 'moveToAttack'; targetBuildingId: string }
   | { kind: 'pillaging'; targetBuildingId: string }
-  | { kind: 'moveToIntercept'; targetTroopId: string; repathCooldownMs: number }
   | { kind: 'fighting'; targetTroopId: string }
   | { kind: 'defend' }
   | { kind: 'heal' }

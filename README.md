@@ -90,23 +90,19 @@ the AI's is always red regardless of which side you land on.
   You start able to build only around your castle, and each new
   building pushes your territory outward, so expansion has to be
   earned rather than assumed.
-- Tap your own troop to open its action menu: **Move / Attack**,
-  **Defend**, **Heal**, or **Intercept** (only shown when an enemy
-  troop is actively marching toward one of your buildings). Its panel
-  also shows a **Special Trait** box when it has one.
-- **Move / Attack puts you in control of the route**: tap adjacent
-  tiles one at a time to trace the troop's path by hand (tap a tile
-  already in the route to rewind to it). This is deliberate — it lets
-  you pick a flanking route through a mountain pass or a river ford
-  instead of always taking the shortest line, so invasions can be
-  about picking a smart approach rather than pure front-line
-  attrition. If your traced path ends next to an enemy building,
-  confirming attacks it — but only if your troop's attack stat actually
-  beats that building's defense (see Combat, below); otherwise the
-  attack is refused outright and the path-trace won't let you confirm
-  it. Archers, which can't attack buildings at all, are blocked the
-  same way. Tapping an already-selected troop again swaps the open
-  panel to that troop's tile info instead of doing nothing.
+- Tap your own troop to open its action menu: **Move**, **Defend**, or
+  **Heal**. Its panel also shows a **Special Trait** box when it has
+  one. Tapping an already-selected troop again swaps the open panel to
+  that troop's tile info instead of doing nothing.
+- **Move is tap-to-go**: tap **Move**, then tap anywhere on the board
+  and the simplest route there is pathfound automatically — no need to
+  trace every tile in between by hand. Tap somewhere else again while
+  it's still en route to redirect it mid-journey; the new route is
+  planned fresh from wherever it currently stands. There's no separate
+  "Attack" step to confirm: engaging is automatic (see Combat, below),
+  so where you send a troop *is* the decision that matters — walking
+  it onto an enemy building or into range of an enemy troop is what
+  starts the fight.
 - Troops take a base 2 seconds to cross a plains-neutral tile; terrain
   scales that up or down: plains (faster), forest (slower), hills
   (slower — unless your own House sits on that hills tile, which
@@ -155,6 +151,22 @@ the AI's is always red regardless of which side you land on.
   distinct metallic shield sound, deliberately audible to both players:
   an attentive opponent who hears it and keeps swinging anyway is about
   to waste their troop against a doubled defense for nothing.
+- **All combat is automatic** — there's no attack order to issue.
+  Two enemy troops that come within each other's range start trading
+  blows on their own the instant that's true, and drift out of it just
+  as automatically if one of them moves away. Buildings work the same
+  way: since buildings don't block movement, walking a troop capable
+  of attacking buildings *onto* an enemy building's own tile is what
+  starts pillaging it, with no separate confirmation. Most ranged
+  units can't attack buildings at all (the Archer, for one) — they
+  just walk straight through an enemy building's tile like empty
+  ground. A (currently hypothetical) siege unit would be the one
+  exception: able to reach out to its own attack range and start
+  bombarding a building without ever needing to stand on it, the same
+  way a ranged troop already doesn't need to stand next to another
+  troop. If you want to intercept an incoming push, there's no
+  dedicated button for it either — just move a defender into its path
+  so it's in range when the enemy arrives.
 - **Troops don't chip away continuously — they swing on a cooldown**,
   randomized per hit so two of the same troop type trading blows don't
   always land in perfect lockstep (a Militia's cooldown re-rolls
@@ -170,12 +182,12 @@ the AI's is always red regardless of which side you land on.
   the attacker is far enough away that a defender's higher stat can't
   reach back, though two ranged units trading fire still risk each
   other normally in whichever direction actually connects. Against a
-  building specifically, a losing matchup isn't even allowed to start —
-  if a troop's attack doesn't exceed the building's defense, the attack
-  order is refused outright. Buildings never take reciprocal damage
-  from a failed attack, but the Barracks still counters: any attacker
-  whose hit actually lands against it takes 4 flat damage back, on top
-  of whatever it dealt.
+  building specifically, a losing matchup never even starts fighting —
+  a troop whose attack doesn't exceed the building's defense simply
+  doesn't engage it, occupying the tile or not. Buildings never take
+  reciprocal damage from a failed attack, but the Barracks still
+  counters: any attacker whose hit actually lands against it takes 4
+  flat damage back, on top of whatever it dealt.
 - **Pillaging a building down to zero HP grants a one-time bonus**
   equal to everything that building was actively producing (e.g.
   destroying a Lumber Mill bordered by 3 forest tiles hands you a

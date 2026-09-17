@@ -344,8 +344,6 @@ function orderRingColor(t: Troop): number {
       return 0x38bdf8;
     case 'heal':
       return 0x22c55e;
-    case 'moveToAttack':
-    case 'moveToIntercept':
     case 'moveToReposition':
       return 0xffffff;
     default:

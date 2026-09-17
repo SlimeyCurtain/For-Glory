@@ -298,18 +298,6 @@ export class GameState {
     );
   }
 
-  /** Enemy troops currently moving toward / pillaging one of `owner`'s buildings. */
-  incomingThreatsFor(owner: PlayerId): Troop[] {
-    const opp = this.opponentOf(owner);
-    return this.troopsOf(opp).filter((t) => {
-      if (t.order.kind === 'moveToAttack' || t.order.kind === 'pillaging') {
-        const b = this.buildings.get(t.order.targetBuildingId);
-        return !!b && b.ownerId === owner && b.state !== 'destroyed';
-      }
-      return false;
-    });
-  }
-
   // ---------- commands ----------
 
   issueBuild(owner: PlayerId, tile: Offset, type: BuildingType): { ok: boolean; reason?: string } {
@@ -481,102 +469,28 @@ export class GameState {
     return hasAdjacentFarm ? Math.max(500, baseMs - BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS) : baseMs;
   }
 
-  issueAttackOrder(troopId: string, targetBuildingId: string): { ok: boolean; reason?: string } {
-    const troop = this.troops.get(troopId);
-    const target = this.buildings.get(targetBuildingId);
-    if (!troop || !target || target.state === 'destroyed') return { ok: false, reason: 'Invalid target' };
-    if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
-    if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
-    if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
-    if (BUILDINGS[target.type].requiresSiegeToAttack && !TROOPS[troop.type].isSiege)
-      return { ok: false, reason: `${BUILDINGS[target.type].name} requires siege units to attack` };
-    if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
-    if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
-      return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
-
-    const dest = this.bestApproachTile(troop.tile, target.tile, troop);
-    if (!dest) return { ok: false, reason: 'No path available' };
-    const path = this.pathFor(troop, dest);
-    if (!path) return { ok: false, reason: 'No path available' };
-
-    troop.path = path;
-    troop.pathIndex = 0;
-    troop.segmentElapsedMs = 0;
-    troop.segmentDurationMs = 0;
-    troop.order = { kind: 'moveToAttack', targetBuildingId };
-    return { ok: true };
-  }
-
-  issueInterceptOrder(troopId: string, targetTroopId: string): { ok: boolean; reason?: string } {
-    const troop = this.troops.get(troopId);
-    const target = this.troops.get(targetTroopId);
-    if (!troop || !target) return { ok: false, reason: 'Invalid target' };
-    if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot intercept ally' };
-
-    const path = this.pathFor(troop, target.tile);
-    if (!path) return { ok: false, reason: 'No path available' };
-    troop.path = path;
-    troop.pathIndex = 0;
-    troop.segmentElapsedMs = 0;
-    troop.segmentDurationMs = 0;
-    troop.order = { kind: 'moveToIntercept', targetTroopId, repathCooldownMs: 700 };
-    return { ok: true };
-  }
-
   /**
-   * Whether `troop` could take one more step onto `to`, given the tiles
-   * already queued in `pathSoFar` (stepping from its last entry, or from the
-   * troop's current tile if the path is still empty). Used to validate a
-   * player-traced path one tap at a time.
+   * Send a troop toward any tile on the board -- the simplest route there is
+   * pathfound automatically (see `pathFor`), rather than requiring the
+   * player to trace it tile by tile. There's no separate "attack" intent to
+   * declare here: since buildings no longer block movement, walking onto an
+   * enemy building's tile (or, for a ranged siege unit, merely coming within
+   * its own attack range) is itself what starts the fight -- see
+   * `autoBuildingTargetFor`, checked automatically every tick regardless of
+   * how the troop got there. Calling this again for a troop already en
+   * route re-plans a fresh path from wherever it currently stands, which is
+   * what lets a player redirect it mid-movement just by tapping elsewhere.
    */
-  isValidNextStep(troop: Troop, pathSoFar: Offset[], to: Offset): boolean {
-    const from = pathSoFar.length > 0 ? pathSoFar[pathSoFar.length - 1] : troop.tile;
-    if (hexDistance(from, to) !== 1) return false;
-    return this.isTilePassableFor(troop, to);
-  }
-
-  /**
-   * Move a troop along a path the player traced by hand, tile by tile,
-   * instead of an auto-computed shortest route -- this is what lets a
-   * player pick a flanking approach through gaps in terrain rather than
-   * always taking the optimal line. If `attackTargetBuildingId` is given,
-   * the final path tile must be adjacent to that building and the troop
-   * starts pillaging on arrival; otherwise it's a plain reposition order.
-   */
-  issueManualMove(troopId: string, path: Offset[], attackTargetBuildingId?: string): { ok: boolean; reason?: string } {
+  issueMoveTo(troopId: string, destination: Offset): { ok: boolean; reason?: string } {
     const troop = this.troops.get(troopId);
     if (!troop) return { ok: false, reason: 'Invalid troop' };
-    if (path.length === 0) return { ok: false, reason: 'No path drawn' };
-
-    let from = troop.tile;
-    for (const step of path) {
-      if (hexDistance(from, step) !== 1) return { ok: false, reason: 'Path is broken' };
-      if (!this.isTilePassableFor(troop, step)) return { ok: false, reason: 'Path crosses impassable terrain' };
-      from = step;
-    }
-
-    if (attackTargetBuildingId) {
-      const target = this.buildings.get(attackTargetBuildingId);
-      if (!target || target.state === 'destroyed') return { ok: false, reason: 'Invalid target' };
-      if (target.ownerId === troop.ownerId) return { ok: false, reason: 'Cannot attack own building' };
-      if (target.type === 'castle') return { ok: false, reason: 'Castle requires siege units' };
-      if (BUILDINGS[target.type].unattackable) return { ok: false, reason: `${BUILDINGS[target.type].name} cannot be attacked` };
-      if (BUILDINGS[target.type].requiresSiegeToAttack && !TROOPS[troop.type].isSiege)
-        return { ok: false, reason: `${BUILDINGS[target.type].name} requires siege units to attack` };
-      if (!TROOPS[troop.type].canAttackBuildings) return { ok: false, reason: 'This troop cannot attack buildings' };
-      if (TROOPS[troop.type].attack <= BUILDINGS[target.type].defense)
-        return { ok: false, reason: `${BUILDINGS[target.type].name} is too well defended for this troop to attack` };
-      if (hexDistance(path[path.length - 1], target.tile) !== 1)
-        return { ok: false, reason: 'Path does not reach that building' };
-    }
-
-    troop.path = path;
+    const path = this.pathFor(troop, destination);
+    if (!path) return { ok: false, reason: 'No path available' };
+    troop.path = path.length > 0 ? path : null;
     troop.pathIndex = 0;
     troop.segmentElapsedMs = 0;
     troop.segmentDurationMs = 0;
-    troop.order = attackTargetBuildingId
-      ? { kind: 'moveToAttack', targetBuildingId: attackTargetBuildingId }
-      : { kind: 'moveToReposition' };
+    troop.order = path.length > 0 ? { kind: 'moveToReposition' } : { kind: 'idle' };
     return { ok: true };
   }
 
@@ -755,32 +669,6 @@ export class GameState {
     }
 
     return effectiveMult / baseMult;
-  }
-
-  /** Pick the passable neighbor tile of `target` closest to `from`. */
-  private bestApproachTile(from: Offset, target: Offset, troop: Troop): Offset | null {
-    const candidates = neighborsOf(target).filter((n) => this.isTilePassableFor(troop, n));
-    if (candidates.length === 0) return null;
-    candidates.sort((a, b) => hexDistance(from, a) - hexDistance(from, b));
-    return candidates[0];
-  }
-
-  /**
-   * Buildings no longer block foot traffic at all -- troops (either
-   * player's) can pass straight through, just a little slower (see
-   * terrainSpeedMultiplierFor). Rubble is the opposite: it's an actual pile
-   * of debris, impassable until someone rebuilds or clears it.
-   */
-  private isTilePassableFor(troop: Troop, tile: Offset): boolean {
-    const t = this.tiles.get(key(tile));
-    if (!t) return false;
-    const def = TROOPS[troop.type];
-    const terrain = TERRAIN[t.terrain];
-    if (terrain.impassableForGroundTroops && !def.canCrossMountains) return false;
-    if (terrain.requiresBoatOrBridge && !this.hasActiveBridge(tile)) return false;
-    const occupant = this.tileOccupiedByBuilding(tile);
-    if (occupant?.state === 'destroyed') return false;
-    return true;
   }
 
   private awardScore(playerId: PlayerId, amount: number, reason: string) {
@@ -986,24 +874,6 @@ export class GameState {
 
   private tickMovement(dtMs: number) {
     for (const troop of this.troops.values()) {
-      if (troop.order.kind === 'moveToIntercept') {
-        troop.order.repathCooldownMs -= dtMs;
-        if (troop.order.repathCooldownMs <= 0) {
-          const target = this.troops.get(troop.order.targetTroopId);
-          if (!target) {
-            troop.order = { kind: 'idle' };
-            troop.path = null;
-            continue;
-          }
-          if (hexDistance(troop.tile, target.tile) > 1) {
-            const path = this.pathFor(troop, target.tile);
-            troop.path = path;
-            troop.pathIndex = 0;
-            troop.order.repathCooldownMs = 700;
-          }
-        }
-      }
-
       if (!troop.path || troop.pathIndex >= troop.path.length) continue;
 
       if (troop.segmentDurationMs === 0) {
@@ -1021,9 +891,11 @@ export class GameState {
 
         if (troop.pathIndex >= troop.path.length) {
           troop.path = null;
-          if (troop.order.kind === 'moveToAttack') {
-            troop.order = { kind: 'pillaging', targetBuildingId: troop.order.targetBuildingId };
-          } else if (troop.order.kind === 'moveToIntercept' || troop.order.kind === 'moveToReposition') {
+          // Arriving doesn't need its own "start attacking" branch anymore --
+          // tickPillage (right after this) checks every troop's tile against
+          // every enemy building fresh each tick, so landing on one takes
+          // effect there regardless of what order got it here.
+          if (troop.order.kind === 'moveToReposition') {
             troop.order = { kind: 'idle' };
           }
         }
@@ -1031,37 +903,78 @@ export class GameState {
     }
   }
 
+  /**
+   * The enemy building `troop` should be fighting right now, purely from its
+   * current position -- no order needs to declare this in advance. A troop
+   * without `canAttackBuildings` (most ranged units, e.g. the Archer) never
+   * qualifies at all, so it just walks through an enemy building's tile like
+   * any other empty ground. Everyone else has to be standing exactly on the
+   * building's own tile (distance 0) to engage it, mirroring "occupying the
+   * tile" -- except a siege unit (none exist yet), which can reach out to
+   * its own `attackRange` instead, same as a ranged troop already can
+   * against another troop, without needing to occupy anything.
+   */
+  private autoBuildingTargetFor(troop: Troop): Building | null {
+    const def = TROOPS[troop.type];
+    if (!def.canAttackBuildings) return null;
+    const opponent = this.opponentOf(troop.ownerId);
+    const maxRange = def.isSiege ? def.attackRange : 0;
+    let best: Building | null = null;
+    let bestDist = Infinity;
+    for (const b of this.buildingsOf(opponent)) {
+      if (b.type === 'castle') continue; // only siege units may ever target it (not yet implemented)
+      if (BUILDINGS[b.type].unattackable) continue;
+      if (BUILDINGS[b.type].requiresSiegeToAttack && !def.isSiege) continue;
+      if (def.attack <= BUILDINGS[b.type].defense) continue;
+      const dist = hexDistance(troop.tile, b.tile);
+      if (dist > maxRange) continue;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = b;
+      }
+    }
+    return best;
+  }
+
   private tickPillage(dtMs: number) {
     for (const b of this.buildings.values()) b.pillagedBy = null;
     const dtSec = dtMs / 1000;
 
     for (const troop of this.troops.values()) {
-      if (troop.order.kind !== 'pillaging') continue;
-      const b = this.buildings.get(troop.order.targetBuildingId);
-      if (!b || b.state === 'destroyed') {
-        troop.order = { kind: 'idle' };
+      if (troop.hp <= 0) continue;
+      const target = this.autoBuildingTargetFor(troop);
+      if (!target) {
+        // Walked (or was redirected) away before finishing it off -- the
+        // fight ends the instant it's no longer in range, same as troop-vs-
+        // troop combat does when the pair drifts apart.
+        if (troop.order.kind === 'pillaging') troop.order = { kind: 'idle' };
         continue;
       }
-      b.pillagedBy = troop.id;
 
-      // issueAttackOrder/issueManualMove already refuse a target this troop's
-      // attack can't beat, so diff should always be positive here -- the
-      // guard just keeps a stray edge case from ever dealing negative damage.
+      if (troop.order.kind !== 'pillaging' || troop.order.targetBuildingId !== target.id) {
+        troop.order = { kind: 'pillaging', targetBuildingId: target.id };
+        troop.path = null; // engaging halts movement, same as tickCombat entering 'fighting'
+      }
+      target.pillagedBy = troop.id;
+
+      // autoBuildingTargetFor already refused any target this troop's attack
+      // can't beat, so diff should always be positive here -- the guard just
+      // keeps a stray edge case from ever dealing negative damage.
       const atk = troop.attack * this.terrainMultAt(troop.tile);
-      const diff = atk - BUILDINGS[b.type].defense;
-      if (diff > 0) b.hp -= diff * dtSec;
+      const diff = atk - BUILDINGS[target.type].defense;
+      if (diff > 0) target.hp -= diff * dtSec;
 
       // Some buildings shoot back -- flat damage that ignores the attacker's defense.
-      const counter = BUILDINGS[b.type].counterDamage;
+      const counter = BUILDINGS[target.type].counterDamage;
       if (counter && !TROOPS[troop.type].isSiege) {
         troop.hp -= counter * dtSec;
       }
 
-      if (b.hp <= 0) {
+      if (target.hp <= 0) {
         troop.order = { kind: 'idle' };
         this.awardScore(troop.ownerId, SCORE.buildingDestroyed, 'building');
-        this.grantPillageBonus(troop.ownerId, b);
-        this.destroyBuilding(b);
+        this.grantPillageBonus(troop.ownerId, target);
+        this.destroyBuilding(target);
       }
     }
 
