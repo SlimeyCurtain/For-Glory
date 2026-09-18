@@ -542,6 +542,7 @@ export class GameState {
   issueRebuildRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
     const b = this.buildings.get(buildingId);
     if (!b || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    if (b.type === 'bridge') return { ok: false, reason: 'Bridge rubble must be cleared before a new one can be built' };
     if (b.ownerId !== owner) return { ok: false, reason: 'Not your rubble' };
     const credit = this.rebuildCreditFor(owner, b.type);
     if (!credit) return { ok: false, reason: 'No rebuild credit available' };
