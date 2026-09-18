@@ -1,6 +1,9 @@
 import {
   BARRACKS_FARM_ADJACENCY_TRAIN_DISCOUNT_MS,
   BASE_GOLD_PER_TICK,
+  BRIDGE_DEMOLISH_COST,
+  BRIDGE_RUBBLE_CLEAR_COST,
+  BRIDGE_RUBBLE_CLEAR_TIME_MS,
   BUILDING_MOVE_PENALTY_MULT,
   BUILDINGS,
   CASTLE_ATTACK,
@@ -26,12 +29,16 @@ import {
   REPAIR_HP_PER_SEC,
   RESOURCE_TICK_MS,
   roadAdjustedMoveMult,
+  ROAD_DEMOLISH_COST,
+  ROAD_STRENGTH,
   SCORE,
   STARTING_FOOD,
   STARTING_GOLD,
   STARTING_STONE,
   STARTING_STRAW,
   STARTING_WOOD,
+  STONE_ROAD_DEMOLISH_COST,
+  STONE_ROAD_STRENGTH,
   TERRAIN,
   TROOPS,
 } from './balance';
@@ -141,7 +148,8 @@ export class GameState {
     return [...result.values()];
   }
 
-  canBuildAt(owner: PlayerId, tile: Offset): { ok: boolean; reason?: string } {
+  /** `type` only matters for the one exception below -- every other check is the same regardless of what's about to go up. */
+  canBuildAt(owner: PlayerId, tile: Offset, type?: BuildingType): { ok: boolean; reason?: string } {
     const t = this.tiles.get(key(tile));
     if (!t) return { ok: false, reason: 'Invalid tile' };
     // Mountains take no building at all; river is now valid ground for a
@@ -154,8 +162,15 @@ export class GameState {
         ? { ok: false, reason: 'Rubble here -- clear it first' }
         : { ok: false, reason: 'Tile occupied' };
     }
-    if (!this.isOwnedTerritory(owner, tile)) return { ok: false, reason: 'Outside your territory' };
-    return { ok: true };
+    if (this.isOwnedTerritory(owner, tile)) return { ok: true };
+    // A Bridge is the one building that can go up outside your own territory
+    // -- even in enemy territory -- as long as a troop is physically
+    // standing next to the site, the same "boots on the ground" requirement
+    // clearing enemy rubble already uses. That's what lets a player punch a
+    // crossing into contested ground instead of only ever extending their
+    // own settlement, at the cost of exposing that troop to defend it.
+    if (type === 'bridge' && this.troopsOf(owner).some((tr) => hexDistance(tr.tile, tile) === 1)) return { ok: true };
+    return { ok: false, reason: 'Outside your territory' };
   }
 
   /** Building types buildable on this specific tile: unlocked for the player, and terrain/adjacency-compatible. */
@@ -348,7 +363,7 @@ export class GameState {
   // ---------- commands ----------
 
   issueBuild(owner: PlayerId, tile: Offset, type: BuildingType): { ok: boolean; reason?: string } {
-    const check = this.canBuildAt(owner, tile);
+    const check = this.canBuildAt(owner, tile, type);
     if (!check.ok) return check;
     if (!this.availableBuildingsFor(owner, tile).includes(type))
       return { ok: false, reason: 'Cannot build that here' };
@@ -423,7 +438,12 @@ export class GameState {
    * type consumes it instead of paying full/fresh price.
    */
   private grantRebuildCredit(b: Building) {
-    if (b.type === 'castle') return; // castles are never rebuilt
+    // Castles are never rebuilt. A Bridge is the one destroyed building that
+    // deliberately gets no discount either -- rebuilding a crossing after
+    // it's been torn down (by its own owner or by a siege unit) is supposed
+    // to cost a real toll again, not a half-price shortcut, or destroying
+    // one would barely inconvenience anybody.
+    if (b.type === 'castle' || b.type === 'bridge') return;
     const halvedCost: Partial<Record<ResourceKey, number>> = {};
     for (const resource of Object.keys(b.paidCost) as ResourceKey[]) {
       halvedCost[resource] = Math.ceil((b.paidCost[resource] ?? 0) / 2);
@@ -436,9 +456,20 @@ export class GameState {
     });
   }
 
-  /** Marks a building destroyed and grants its owner a rebuild credit for it -- the single place any building dies. */
+  /**
+   * Marks a building destroyed and grants its owner a rebuild credit for it
+   * -- the single place any building dies, whether from combat, insolvency,
+   * or a voluntary Demolish. A Road or Stone Road is the one exception:
+   * either always vanishes outright the instant it dies, with no rubble and
+   * no credit, since there's nothing worth recovering from a stretch of
+   * pavement the way there is from a real building.
+   */
   private destroyBuilding(b: Building) {
     if (b.state === 'destroyed') return;
+    if (b.type === 'road' || b.type === 'stoneRoad') {
+      this.buildings.delete(b.id);
+      return;
+    }
     b.state = 'destroyed';
     this.grantRebuildCredit(b);
   }
@@ -459,6 +490,7 @@ export class GameState {
   issueClearRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
     const b = this.buildings.get(buildingId);
     if (!b || b.state !== 'destroyed') return { ok: false, reason: 'Invalid target' };
+    if (b.type === 'bridge') return { ok: false, reason: 'Use Clear Bridge Rubble instead' };
     const isOwn = b.ownerId === owner;
     if (!isOwn) {
       const hasAdjacentTroop = this.troopsOf(owner).some((t) => hexDistance(t.tile, b.tile) === 1);
@@ -470,6 +502,32 @@ export class GameState {
     player.gold -= cost;
     this.takeRebuildCredit(b.ownerId, b.type);
     this.buildings.delete(b.id);
+    return { ok: true };
+  }
+
+  /**
+   * Starts clearing a destroyed Bridge's rubble out of the water -- unlike
+   * ordinary rubble, this isn't instant (it takes BRIDGE_RUBBLE_CLEAR_TIME_MS
+   * to finish, ticked down in tickBridgeRubbleClear) and isn't cheaper for
+   * the owner: either player pays the exact same gold/wood/straw price and
+   * needs a troop adjacent to the water tile to start it, since the whole
+   * point is a real, symmetric toll on whoever wants that crossing gone --
+   * not a discount for whichever side happened to own the bridge.
+   */
+  issueClearBridgeRubble(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
+    const b = this.buildings.get(buildingId);
+    if (!b || b.state !== 'destroyed' || b.type !== 'bridge') return { ok: false, reason: 'Invalid target' };
+    if (b.clearingRubbleRemainingMs != null) return { ok: false, reason: 'Already being cleared' };
+    const hasAdjacentTroop = this.troopsOf(owner).some((t) => hexDistance(t.tile, b.tile) === 1);
+    if (!hasAdjacentTroop) return { ok: false, reason: 'Need a troop adjacent to the rubble' };
+    const player = this.players[owner];
+    for (const resource of Object.keys(BRIDGE_RUBBLE_CLEAR_COST) as (keyof typeof BRIDGE_RUBBLE_CLEAR_COST)[]) {
+      if (player[resource] < BRIDGE_RUBBLE_CLEAR_COST[resource]) return { ok: false, reason: 'Not enough resources' };
+    }
+    for (const resource of Object.keys(BRIDGE_RUBBLE_CLEAR_COST) as (keyof typeof BRIDGE_RUBBLE_CLEAR_COST)[]) {
+      player[resource] -= BRIDGE_RUBBLE_CLEAR_COST[resource];
+    }
+    b.clearingRubbleRemainingMs = BRIDGE_RUBBLE_CLEAR_TIME_MS;
     return { ok: true };
   }
 
@@ -514,7 +572,49 @@ export class GameState {
     const b = this.buildings.get(buildingId);
     if (!b || b.ownerId !== owner || b.state !== 'active') return { ok: false, reason: 'Invalid target' };
     if (b.type === 'castle') return { ok: false, reason: 'Cannot demolish the castle' };
+    // Everything else is free -- Road, Stone Road, and Bridge are the only
+    // exceptions, since they're what let *anyone* (friend or foe) move
+    // faster or cross the river at all, not just something the owner alone
+    // benefits from tearing down on a whim.
+    const cost =
+      b.type === 'stoneRoad' ? STONE_ROAD_DEMOLISH_COST : b.type === 'road' ? ROAD_DEMOLISH_COST : b.type === 'bridge' ? BRIDGE_DEMOLISH_COST : 0;
+    const player = this.players[owner];
+    if (player.gold < cost) return { ok: false, reason: 'Not enough gold' };
+    player.gold -= cost;
     this.destroyBuilding(b);
+    return { ok: true };
+  }
+
+  /**
+   * Upgrades a still-standing, active Road into a Stone Road in place --
+   * the only way to ever get one, and only once an active Quarry can supply
+   * the stone it needs both to build and to keep sustaining. Goes through
+   * the same constructing -> active pipeline as any fresh build (so it
+   * briefly loses its speed bonus while the upgrade is underway, same as a
+   * brand new Road would), just without ever leaving the tile empty.
+   */
+  issueUpgradeRoad(owner: PlayerId, buildingId: string): { ok: boolean; reason?: string } {
+    const b = this.buildings.get(buildingId);
+    if (!b || b.ownerId !== owner || b.type !== 'road' || b.state !== 'active') return { ok: false, reason: 'Invalid target' };
+    const hasQuarry = this.buildingsOf(owner).some((x) => x.type === 'quarry' && x.state === 'active');
+    if (!hasQuarry) return { ok: false, reason: 'Requires an active Quarry' };
+    const cost = this.previewBuildCost(owner, 'stoneRoad');
+    const player = this.players[owner];
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      if (player[resource] < (cost[resource] ?? 0)) return { ok: false, reason: 'Not enough resources' };
+    }
+    for (const resource of Object.keys(cost) as ResourceKey[]) {
+      player[resource] -= cost[resource] ?? 0;
+    }
+    const def = BUILDINGS.stoneRoad;
+    b.type = 'stoneRoad';
+    b.state = 'constructing';
+    b.buildTotalMs = def.buildTimeMs;
+    b.buildRemainingMs = def.buildTimeMs;
+    b.maxHp = def.maxHp;
+    b.hp = Math.max(1, Math.round(def.maxHp * 0.15));
+    b.paidCost = cost;
+    b.paidBuildTimeMs = def.buildTimeMs;
     return { ok: true };
   }
 
@@ -748,8 +848,9 @@ export class GameState {
 
     const baseMult = TERRAIN[terrain].moveTimeMult;
     let effectiveMult = baseMult;
-    if (activeOccupant?.type === 'road') {
-      effectiveMult = roadAdjustedMoveMult(baseMult);
+    if (activeOccupant?.type === 'road' || activeOccupant?.type === 'stoneRoad') {
+      const strength = activeOccupant.type === 'stoneRoad' ? STONE_ROAD_STRENGTH : ROAD_STRENGTH;
+      effectiveMult = roadAdjustedMoveMult(baseMult, strength);
     } else if (terrain === 'hills' && activeOccupant?.type === 'house' && activeOccupant.ownerId === troopOwnerId) {
       effectiveMult = 1; // cancels the hills penalty entirely for the owner
     }
@@ -789,6 +890,7 @@ export class GameState {
     this.tickConstruction(dtMs);
     this.tickTraining(dtMs);
     this.tickRepair(dtMs);
+    this.tickBridgeRubbleClear(dtMs);
     this.tickMovement(dtMs);
     this.tickPillage(dtMs);
     this.tickHealing(dtMs);
@@ -967,6 +1069,14 @@ export class GameState {
         b.repairing = false;
         this.awardScore(b.ownerId, SCORE.constructOrRepair, 'repair');
       }
+    }
+  }
+
+  private tickBridgeRubbleClear(dtMs: number) {
+    for (const b of this.buildings.values()) {
+      if (b.clearingRubbleRemainingMs == null) continue;
+      b.clearingRubbleRemainingMs -= dtMs;
+      if (b.clearingRubbleRemainingMs <= 0) this.buildings.delete(b.id);
     }
   }
 

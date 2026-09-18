@@ -7,6 +7,8 @@ export const MAP_ROWS = 13;
 export const HALF_WIDTH = MAP_COLS / 2;
 export const CASTLE_COL = 4; // pulled in from the map edge -- a hub, not a back wall
 export const CASTLE_ROW_MARGIN = 4; // castles must be at least this many rows from the top/bottom edge
+/** Every castle is guaranteed at least one Forest tile within this many hexes -- a Lumber Mill's wood is too foundational to leave to chance placement. */
+export const CASTLE_FOREST_RADIUS = 4;
 
 export interface Tile {
   offset: Offset;
@@ -199,6 +201,38 @@ function generateHalf(rng: Rng, castle: Offset): Map<string, TerrainType> {
     }
   }
   for (const t of lakeTiles) setT(t, 'river'); // lakes use the same impassable-without-boat terrain
+
+  // --- guarantee: a Lumber Mill needs Forest within reach early, before any
+  // wood income exists to fund a longer search for one. The forest blob and
+  // stray tiles above are placed anywhere in the half at random, so on an
+  // unlucky roll every one of them can land more than a few farm-hops away
+  // from the castle -- a settlement that starts wood-starved with no
+  // realistic path to fixing it. If nothing forest ended up within
+  // CASTLE_FOREST_RADIUS tiles, force the plains tile closest to the castle
+  // (within that radius) to forest instead of re-rolling the whole half.
+  const hasNearbyForest = [...terrain.entries()].some(([k, t]) => {
+    if (t !== 'forest') return false;
+    const [col, row] = k.split(',').map(Number);
+    return hexDistance({ col, row }, castle) <= CASTLE_FOREST_RADIUS;
+  });
+  if (!hasNearbyForest) {
+    let best: Offset | null = null;
+    let bestDist = Infinity;
+    for (let dr = -CASTLE_FOREST_RADIUS; dr <= CASTLE_FOREST_RADIUS; dr++) {
+      for (let dc = -CASTLE_FOREST_RADIUS; dc <= CASTLE_FOREST_RADIUS; dc++) {
+        const o = { col: castle.col + dc, row: castle.row + dr };
+        if (!inHalf(o) || (o.col === castle.col && o.row === castle.row)) continue;
+        const d = hexDistance(o, castle);
+        if (d > CASTLE_FOREST_RADIUS) continue;
+        if ((terrain.get(key(o)) ?? 'plains') !== 'plains') continue;
+        if (d < bestDist) {
+          bestDist = d;
+          best = o;
+        }
+      }
+    }
+    if (best) setT(best, 'forest');
+  }
 
   return terrain;
 }

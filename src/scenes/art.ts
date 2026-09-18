@@ -198,6 +198,8 @@ export function drawBuildingIcon(g: G, type: BuildingType, x: number, y: number,
       return drawHouseIcon(g, x, y, ownerColor);
     case 'road':
       return drawRoadIcon(g, x, y, ownerColor);
+    case 'stoneRoad':
+      return drawStoneRoadIcon(g, x, y, ownerColor);
     case 'fishingBoat':
       return drawFishingBoatIcon(g, x, y, ownerColor);
     case 'bridge':
@@ -483,15 +485,35 @@ function drawHouseIcon(g: G, x: number, y: number, ownerColor: number) {
 }
 
 /** A short paved strip with a dashed centerline, in the owner's color so a Road reads as claimed ground rather than a neutral path. */
+/** The cheap, fast wood-tier road -- a rough dirt track of packed planks, visually distinct from the paved Stone Road it can be upgraded into. */
 function drawRoadIcon(g: G, x: number, y: number, ownerColor: number) {
+  g.fillStyle(0x7a5a3a, 1);
+  g.fillRect(x - 15, y - 6, 30, 12);
+  g.lineStyle(1.5, shade(ownerColor, -0.2), 1);
+  g.strokeRect(x - 15, y - 6, 30, 12);
+
+  // horizontal wood-plank seams running the length of the track
+  g.lineStyle(1, 0x54391f, 0.8);
+  g.lineBetween(x - 15, y - 2, x + 15, y - 2);
+  g.lineBetween(x - 15, y + 2, x + 15, y + 2);
+  g.lineStyle(1.4, 0xc9a876, 0.85);
+  for (const dx of [-11, -3, 5, 13]) {
+    g.lineBetween(x + dx, y - 5, x + dx, y + 5);
+  }
+}
+
+/** The Stone Road upgrade -- a proper cobbled surface, echoing the castle ground's own cobblestone motif so the two paved surfaces read as the same material. */
+function drawStoneRoadIcon(g: G, x: number, y: number, ownerColor: number) {
   g.fillStyle(0x8a8478, 1);
   g.fillRect(x - 15, y - 6, 30, 12);
   g.lineStyle(1.5, shade(ownerColor, -0.2), 1);
   g.strokeRect(x - 15, y - 6, 30, 12);
 
-  g.lineStyle(1.8, 0xe8e2d0, 0.9);
-  for (const dx of [-9, -1, 7]) {
-    g.lineBetween(x + dx, y, x + dx + 4, y);
+  g.fillStyle(shade(0x8a8478, -0.25), 0.9);
+  for (const row of [-3, 0, 3]) {
+    for (const col of [-11, -3.5, 3.5, 11]) {
+      g.fillCircle(x + col + (row === 0 ? 1.75 : 0), y + row, 1.6);
+    }
   }
 }
 

@@ -53,6 +53,8 @@ export interface Building {
   /** The exact resource cost and build time this instance was actually built for -- destroying it grants a rebuild credit at half of each. */
   paidCost: Partial<Record<ResourceKey, number>>;
   paidBuildTimeMs: number;
+  /** Bridge rubble only: time left until the water is cleared (see GameState.issueClearBridgeRubble). Present only while someone has paid to start clearing it. */
+  clearingRubbleRemainingMs?: number;
 }
 
 export type TroopOrder =

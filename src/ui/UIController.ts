@@ -1,4 +1,17 @@
-import { BUILDINGS, CLEAR_RUBBLE_COST, CLEAR_RUBBLE_COST_ENEMY, FISHING_BOAT_HUT_GOLD_BONUS, MATCH_DURATION_MS, TERRAIN, TROOPS } from '../game/balance';
+import {
+  BRIDGE_DEMOLISH_COST,
+  BRIDGE_RUBBLE_CLEAR_COST,
+  BRIDGE_RUBBLE_CLEAR_TIME_MS,
+  BUILDINGS,
+  CLEAR_RUBBLE_COST,
+  CLEAR_RUBBLE_COST_ENEMY,
+  FISHING_BOAT_HUT_GOLD_BONUS,
+  MATCH_DURATION_MS,
+  ROAD_DEMOLISH_COST,
+  STONE_ROAD_DEMOLISH_COST,
+  TERRAIN,
+  TROOPS,
+} from '../game/balance';
 import type { ResourceKey, TerrainType, TroopType } from '../game/balance';
 import { GameState } from '../game/GameState';
 import { hexDistance } from '../game/hex';
@@ -270,7 +283,7 @@ export class UIController {
     const tileOwner = this.selectedTile ? this.state.tileOccupiedByBuilding(this.selectedTile)?.ownerId ?? null : null;
     const tileIsYours = this.selectedTile ? this.state.isOwnedTerritory(HUMAN, this.selectedTile) : null;
     const hasAdjacentTroop =
-      b?.state === 'destroyed' && b.ownerId !== HUMAN
+      b?.state === 'destroyed' && (b.ownerId !== HUMAN || b.type === 'bridge')
         ? this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1)
         : null;
     const eligibleBoatTiles = b?.type === 'fishersHut' ? this.state.eligibleFishingBoatTiles(b).length : null;
@@ -280,6 +293,7 @@ export class UIController {
       b?.state,
       b?.training ? Math.ceil(b.training.remainingMs / 500) : null,
       b?.repairing,
+      b?.clearingRubbleRemainingMs != null ? Math.ceil(b.clearingRubbleRemainingMs / 1000) : null,
       hasAdjacentTroop,
       eligibleBoatTiles,
       t ? Math.ceil(t.hp) : null,
@@ -426,7 +440,33 @@ export class UIController {
       this.el.panelBody.appendChild(b);
     }
 
+    // A Bridge is the one building allowed outside your own territory --
+    // even into enemy ground -- as long as a troop is standing right next to
+    // the site (see GameState.canBuildAt). Only offer that door on a river
+    // tile with nothing on it already; anywhere else outside your territory
+    // there's genuinely nothing buildable, so there's no point showing Build
+    // just to have the menu come back empty.
+    const canBridgeOutsideTerritory =
+      territoryLabel !== 'Yours' &&
+      !existingBuilding &&
+      terrain === 'river' &&
+      this.state.troopsOf(HUMAN).some((t) => hexDistance(t.tile, tile) === 1);
+
     if (territoryLabel === 'Yours' && !existingBuilding) {
+      const buildBtn = document.createElement('button');
+      buildBtn.className = 'action-btn';
+      buildBtn.textContent = 'Build';
+      buildBtn.addEventListener('click', () => {
+        this.mode = 'build';
+        this.renderBuildMenu();
+      });
+      this.el.panelBody.appendChild(buildBtn);
+    } else if (canBridgeOutsideTerritory) {
+      const hint = document.createElement('p');
+      hint.className = 'hint';
+      hint.textContent = 'A troop of yours is adjacent -- you can build a Bridge here.';
+      this.el.panelBody.appendChild(hint);
+
       const buildBtn = document.createElement('button');
       buildBtn.className = 'action-btn';
       buildBtn.textContent = 'Build';
@@ -476,7 +516,57 @@ export class UIController {
     this.el.panelBody.appendChild(backBtn);
   }
 
+  /**
+   * Bridge rubble is the one kind that plays by different rules: no owner
+   * discount (the whole point is a real toll for whoever wants the crossing
+   * back), no Rebuild option (Bridges never earn a rebuild credit -- see
+   * GameState.grantRebuildCredit), a multi-second clear instead of an
+   * instant one, and a troop requirement that applies to the bridge's own
+   * former owner too, not just an opponent digging through someone else's
+   * wreckage.
+   */
+  private renderBridgeRubbleInfo(b: Building) {
+    this.openPanel('Bridge Rubble');
+    this.el.panelBody.innerHTML = '';
+
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'Blocks the crossing until cleared. Either player can pay to clear it -- there is no owner discount.';
+    this.el.panelBody.appendChild(hint);
+
+    if (b.clearingRubbleRemainingMs != null) {
+      const p = document.createElement('p');
+      p.textContent = `Clearing… ${Math.ceil(b.clearingRubbleRemainingMs / 1000)}s`;
+      this.el.panelBody.appendChild(p);
+      return;
+    }
+
+    const player = this.state.players[HUMAN];
+    const hasAdjacentTroop = this.state.troopsOf(HUMAN).some((troop) => hexDistance(troop.tile, b.tile) === 1);
+    if (!hasAdjacentTroop) {
+      const need = document.createElement('p');
+      need.className = 'hint';
+      need.textContent = 'Needs one of your troops standing adjacent to it.';
+      this.el.panelBody.appendChild(need);
+    }
+    const cost = BRIDGE_RUBBLE_CLEAR_COST;
+    const affordable = player.gold >= cost.gold && player.wood >= cost.wood && player.straw >= cost.straw;
+    const btn = document.createElement('button');
+    btn.className = 'action-btn';
+    btn.disabled = !affordable || !hasAdjacentTroop;
+    btn.textContent = `Clear Bridge Rubble — ${formatCost(cost)} — ${BRIDGE_RUBBLE_CLEAR_TIME_MS / 1000}s`;
+    btn.addEventListener('click', () => {
+      const res = this.state.issueClearBridgeRubble(HUMAN, b.id);
+      if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+    });
+    this.el.panelBody.appendChild(btn);
+  }
+
   private renderRubbleInfo(b: Building) {
+    if (b.type === 'bridge') {
+      this.renderBridgeRubbleInfo(b);
+      return;
+    }
     const isOwn = b.ownerId === HUMAN;
     this.openPanel(`${isOwn ? 'Rubble' : 'Enemy Rubble'} (was ${BUILDINGS[b.type].name})`);
     this.el.panelBody.innerHTML = '';
@@ -632,10 +722,30 @@ export class UIController {
       this.el.panelBody.appendChild(p);
     }
 
+    if (b.type === 'road') {
+      const hasQuarry = this.state.buildingsOf(HUMAN).some((x) => x.type === 'quarry' && x.state === 'active');
+      if (hasQuarry) {
+        const cost = this.state.previewBuildCost(HUMAN, 'stoneRoad');
+        const affordable = RESOURCES.every((r) => (cost[r.key] ?? 0) <= player[r.key]);
+        const upgradeBtn = document.createElement('button');
+        upgradeBtn.className = 'action-btn';
+        upgradeBtn.disabled = !affordable;
+        upgradeBtn.textContent = `Upgrade to Stone Road — ${formatCost(cost)}`;
+        upgradeBtn.addEventListener('click', () => {
+          const res = this.state.issueUpgradeRoad(HUMAN, b.id);
+          if (!res.ok) this.flashBanner(res.reason ?? 'Failed');
+        });
+        this.el.panelBody.appendChild(upgradeBtn);
+      }
+    }
+
     if (b.type !== 'castle') {
+      const demolishCost =
+        b.type === 'stoneRoad' ? STONE_ROAD_DEMOLISH_COST : b.type === 'road' ? ROAD_DEMOLISH_COST : b.type === 'bridge' ? BRIDGE_DEMOLISH_COST : 0;
       const demolishBtn = document.createElement('button');
       demolishBtn.className = 'action-btn danger';
-      demolishBtn.textContent = 'Demolish';
+      demolishBtn.disabled = player.gold < demolishCost;
+      demolishBtn.textContent = demolishCost > 0 ? `Demolish — ${demolishCost}g` : 'Demolish';
       demolishBtn.addEventListener('click', () => {
         const res = this.state.issueDemolish(HUMAN, b.id);
         if (!res.ok) this.flashBanner(res.reason ?? 'Failed');

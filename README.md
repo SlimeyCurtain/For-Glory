@@ -59,8 +59,8 @@ the AI's is always red regardless of which side you land on.
   cadence — Gold every 5s, Food/Straw every 3s, Wood every 6s (Lumber
   Mill's own production interval), Stone every 8s (Quarry's) — while
   each building otherwise produces on its own instance-specific
-  interval. The game clock is real-time 1:1 — the 5-minute match timer
-  is five real minutes, not an abstracted "game time."
+  interval. The game clock is real-time 1:1 — the 10-minute match timer
+  is ten real minutes, not an abstracted "game time."
 - **Running a deficit just draws down your reserve, tick by tick** —
   producing 4 food/3s against 6 food/3s of upkeep is a net -2 every
   tick, and that's fine as long as you have reserve to give. Only once
@@ -120,18 +120,25 @@ the AI's is always red regardless of which side you land on.
   physically in the way. **Rubble is the opposite**: a destroyed
   building's remains are genuinely impassable until someone clears (or
   rebuilds) that tile — see Rubble below.
-- **Roads** are a dedicated building (2 stone + 4 wood, 4s to build)
-  that halve whatever movement penalty their tile's terrain would
-  otherwise cost, and boost Plains' speed buff by half again — a Road
-  through a Forest still nets faster than the raw Forest despite the
-  usual +1/8 building tax. That effect applies to any troop crossing
-  it, yours or the enemy's, regardless of who built it. Nothing else
-  can be built on a Road tile, and unlike every other building, a Road
-  can never be attacked and scores nothing for its first construction.
-  Since claiming a tile at all (even with nothing special on it)
-  extends your territory, a cheap flat-cost Road is a much better tool
-  than an escalating Farm trail for reaching a distant resource in a
-  favorable direction.
+- **Roads** are a dedicated building (4 wood, 2s to build, -1 wood
+  upkeep) that ease whatever movement penalty their tile's terrain
+  would otherwise cost by a quarter, and boost Plains' speed buff by a
+  matching amount — cheap and fast enough to throw down the moment a
+  Lumber Mill exists, so reaching hills, mountains, or water for the
+  next resource building doesn't have to wait on stone income too.
+  That effect applies to any troop crossing it, yours or the enemy's,
+  regardless of who built it. Nothing else can be built on a Road tile,
+  and unlike every other building, a Road can never be attacked and
+  scores nothing for its first construction. Since claiming a tile at
+  all (even with nothing special on it) extends your territory, a
+  cheap Road is a much better tool than an escalating Farm trail for
+  reaching a distant resource in a favorable direction. Once you have
+  an active Quarry, any standing Road can be **upgraded to a Stone
+  Road** (2 wood + 2 stone, 4s) for the full-strength effect a Road
+  used to always have — halving the penalty outright instead of just
+  cutting a quarter of it — with its own distinct paved look. Demolishing
+  a Road costs 5 gold, a Stone Road 8; either clears instantly with no
+  rubble left behind, unlike every other building.
 - **Bridges** (4 stone + 2 wood, 10s to build) go up on a river/lake
   tile itself and let troops cross water there —
   they don't reduce a river's own movement cost the way a Road reduces
@@ -139,7 +146,19 @@ the AI's is always red regardless of which side you land on.
   on top of a neutral base. Unlike a Road, a Bridge scores normally for
   its first construction, and it *can* be targeted — but only by a
   siege unit, which don't exist yet, so every current troop is refused
-  outright with "requires siege units to attack."
+  outright with "requires siege units to attack." A Bridge is also the
+  one building you can put up **outside your own territory** — even in
+  the enemy's — as long as one of your troops is standing right next to
+  the site, letting you punch a crossing into contested ground instead
+  of only ever extending your own settlement (at the cost of exposing
+  that troop to whoever wants to stop you). Demolishing your own Bridge
+  costs 10 gold, and a siege unit destroying one has the identical
+  result: unlike every other building, it leaves **rubble sitting in the
+  water** instead of clearing instantly, and grants no rebuild credit —
+  rebuilding one is always full price. That rubble can be cleared by
+  *either* player (no owner discount — the whole point is a real, even
+  toll on whoever wants the crossing back) for a flat 5 gold + 10 wood +
+  20 straw, 15 seconds, with a troop standing adjacent to start it.
 - **Defend** doubles a troop's defense and roots it in place until you
   move it, attack, or it dies — it survives a combat engagement intact
   instead of being overridden, and you can switch a troop into it
@@ -199,17 +218,21 @@ the AI's is always red regardless of which side you land on.
   the job, not a slow drain over time.
 - Destroying an enemy building scores a point; destroying an enemy
   troop scores 0.5. Destroying the enemy castle wins instantly;
-  otherwise highest score wins when the 5-minute clock runs out.
+  otherwise highest score wins when the 10-minute clock runs out.
   Constructing a building only scores 0.25 the very first time you
   ever put up that building type — extra copies don't score, and
   neither does rebuilding one after it's destroyed.
 - **Any of your own active buildings (except the Castle) can be
-  Demolished** — a free, voluntary action in that building's own info
-  panel that turns it into rubble on the spot, exactly as if it had
-  been destroyed in combat, credit and all. It's the fix for a building
-  whose own upkeep is doing more harm than good with nothing else left
-  to build to offset it — tear it down rather than let it keep bleeding
-  a resource dry.
+  Demolished** — a voluntary action in that building's own info panel.
+  For almost every building it's free and turns it into rubble on the
+  spot, exactly as if it had been destroyed in combat, credit and all —
+  the fix for a building whose own upkeep is doing more harm than good
+  with nothing else left to build to offset it, so you can tear it down
+  rather than let it keep bleeding a resource dry. Road, Stone Road, and
+  Bridge are the exceptions (see their own entries above): demolishing
+  those costs gold, since they're what let *anyone* — friend or foe —
+  move faster or cross the river at all, not just something only you'd
+  benefit from tearing down on a whim.
 - **A destroyed building leaves rubble behind, with a crumbling sound
   as it comes down** — a crumbled pile on its tile instead of the spot
   just going empty, so it's never ambiguous whether that patch of
@@ -254,8 +277,9 @@ the AI's is always red regardless of which side you land on.
 | Fisher's Hut | Plains/Hills, adjacent to river/lake | 20 gold + 40 wood + 30 straw | 20 hp / 2 def | 3 gold / 5s | One Build Fishing Boat button (its own panel) highlights eligible adjacent river/lake tiles to tap; +2 gold production per adjacent active boat |
 | Fishing Boat | River/lake tile adjacent to the Fisher's Hut that builds it (not in the general build menu) | 2 gold + 8 wood | 8 hp / 2 def | 2 food / 3s | Upkeep -2 wood; also feeds its parent Fisher's Hut's gold bonus (see above) |
 | House | Anywhere except river/lake/mountains | 20 wood + 30 stone + 40 straw | 20 hp / 3 def | 1 gold / 5s | Trait depends on the tile it sits on (see its in-game Special Trait box) |
-| Road | Plains/Forest/Hills | 4 wood + 2 stone | 10 hp (irrelevant — can't be attacked) | none | Halves its tile's terrain movement penalty (or boosts a Plains buff by half again) for any troop; nothing else can be built on it; scores nothing for its first construction |
-| Bridge | River/lake | 4 stone + 2 wood | No defense stat — destructible only by a siege unit's own to-hit roll (none exist yet, so effectively indestructible today) | none | Lets troops cross the water tile it's on; no speed buff of its own, just the usual building tax; scores normally for its first construction, unlike a Road |
+| Road | Plains/Forest/Hills | 4 wood | 10 hp (irrelevant — can't be attacked) | none | Upkeep -1 wood. Eases its tile's terrain movement penalty by a quarter (or boosts a Plains buff by a matching amount) for any troop; nothing else can be built on it; scores nothing for its first construction; demolishing costs 5 gold and clears instantly, no rubble |
+| Stone Road | Upgrade only — an existing, active Road, once you have an active Quarry | 2 wood + 2 stone (upgrade cost, not a fresh build) | 10 hp (irrelevant — can't be attacked) | none | Upkeep -1 wood, -1 stone. The full-strength version of a Road's own effect (halves the penalty instead of just easing it by a quarter); scores nothing; demolishing costs 8 gold and clears instantly, no rubble |
+| Bridge | River/lake | 4 stone + 2 wood | No defense stat — destructible only by a siege unit's own to-hit roll (none exist yet, so effectively indestructible today) | none | Lets troops cross the water tile it's on; no speed buff of its own, just the usual building tax; scores normally for its first construction, unlike a Road; can be built outside your own territory with an adjacent troop; demolishing (10 gold) or a siege kill both leave rubble in the water with no rebuild credit, clearable by either player for 5 gold + 10 wood + 20 straw over 15s |
 
 ### Troops
 
@@ -281,7 +305,13 @@ lands on which side is a coin flip every match — you're never stuck
 permanently on one side, and the two players are never on the same
 side. Generation always double-checks that a ground path exists
 between the two castles and clears the nearest obstacle if a
-particular random map would otherwise seal one side off.
+particular random map would otherwise seal one side off. It also
+guarantees at least one Forest tile within 4 hexes of each castle —
+forcing one into existence on an unlucky roll if the random forest
+placement above didn't happen to land one nearby — since a Lumber
+Mill (and the wood income everything past it depends on) has to be
+reachable from the very start, before any income exists to fund a
+longer search for one.
 
 ## Mobile / desktop
 
@@ -309,7 +339,7 @@ mobile) portrait behind the rotate prompt — freezes it the instant that
 starts and picks back up exactly where it left off once it's visible
 *and* landscape again, including partway through the intro countdown
 itself (rotate away mid-"3-2-1" and it resumes on the same number
-instead of finishing in the background). The 5-minute clock and
+instead of finishing in the background). The 10-minute clock and
 everything else just pauses, rather than the match continuing to run
 somewhere the player can't see or interact with it.
 

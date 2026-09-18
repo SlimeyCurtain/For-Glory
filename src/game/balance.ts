@@ -70,6 +70,7 @@ export type BuildingType =
   | 'fishersHut'
   | 'house'
   | 'road'
+  | 'stoneRoad'
   | 'fishingBoat'
   | 'bridge';
 
@@ -199,6 +200,25 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     goldCost: 0,
     foodCost: 0,
     woodCost: 4,
+    buildTimeMs: 2000,
+    maxHp: 10,
+    defense: 999,
+    allowedTerrain: ['plains', 'forest', 'hills'],
+    unattackable: true,
+    noFirstConstructionScore: true,
+    upkeep: { wood: -1 },
+    specialTrait:
+      "Cuts whatever movement penalty its terrain would otherwise cost by a quarter, and boosts a Plains speed buff by a matching amount. Applies to any troop crossing it, friendly or enemy. Nothing else may be built on a Road tile. Upgrade to a Stone Road (once you have an active Quarry) for the full effect. Demolishing a Road costs 5 gold and clears it instantly -- no rubble left behind.",
+  },
+  // Never offered directly in the build menu -- the only way to get one is
+  // upgrading an existing, active Road (see GameState.issueUpgradeRoad) once
+  // a Quarry is active. Its own BuildingDef still drives the upgrade's cost
+  // (via previewBuildCost) and its own upkeep/stats once built.
+  stoneRoad: {
+    name: 'Stone Road',
+    goldCost: 0,
+    foodCost: 0,
+    woodCost: 2,
     stoneCost: 2,
     buildTimeMs: 4000,
     maxHp: 10,
@@ -206,8 +226,9 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     allowedTerrain: ['plains', 'forest', 'hills'],
     unattackable: true,
     noFirstConstructionScore: true,
+    upkeep: { wood: -1, stone: -1 },
     specialTrait:
-      'Halves whatever movement penalty its terrain would otherwise cost, and boosts a Plains speed buff by half again. Applies to any troop crossing it, friendly or enemy. Nothing else may be built on a Road tile.',
+      "Halves whatever movement penalty its terrain would otherwise cost, and boosts a Plains speed buff by half again -- a Road's original, full-strength effect. Demolishing a Stone Road costs 8 gold and clears it instantly -- no rubble left behind.",
   },
   // Not offered in the general build menu -- only placeable from an owned,
   // active Fisher's Hut's own panel, on a river tile adjacent to it (see
@@ -242,7 +263,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     allowedTerrain: ['river'],
     requiresSiegeToAttack: true,
     specialTrait:
-      'Acts like a Road (lets troops cross), but grants no movement buff of its own -- it only allows the crossing. Unlike a Road, its first construction scores normally, and it can be targeted by siege units (none exist yet).',
+      "Acts like a Road (lets troops cross), but grants no movement buff of its own -- it only allows the crossing. Unlike a Road, its first construction scores normally, and it can be targeted by siege units (none exist yet). Can be built outside your own territory with a troop standing adjacent to the site -- even in enemy territory. Demolishing one (10 gold) or a siege unit destroying one both leave rubble in the water instead of clearing instantly, and neither grants a rebuild credit: whoever wants a crossing there again pays full price. Either player can pay to clear that rubble with an adjacent troop.",
   },
 };
 
@@ -253,18 +274,39 @@ export const CLEAR_RUBBLE_COST = 5;
 /** Clearing someone else's rubble costs more, and additionally requires a troop of yours adjacent to it. */
 export const CLEAR_RUBBLE_COST_ENEMY = 10;
 
+/** Flat gold cost to demolish your own Road/Stone Road/Bridge -- the one demolish case that isn't free, since these are what let anyone (friend or foe) cross faster at all. */
+export const ROAD_DEMOLISH_COST = 5;
+export const STONE_ROAD_DEMOLISH_COST = 8;
+export const BRIDGE_DEMOLISH_COST = 10;
+
+/**
+ * A destroyed Bridge (by its owner's own Demolish, or by a siege unit) is
+ * the one piece of infrastructure that leaves rubble sitting in the water
+ * instead of vanishing or clearing instantly -- and unlike ordinary rubble,
+ * clearing it isn't cheaper for the owner: either player can pay the exact
+ * same price, since the whole point is that whoever wants the crossing back
+ * has to pay a real toll for it, not just whichever side happens to own it.
+ */
+export const BRIDGE_RUBBLE_CLEAR_COST: { gold: number; wood: number; straw: number } = { gold: 5, wood: 10, straw: 20 };
+export const BRIDGE_RUBBLE_CLEAR_TIME_MS = 15000;
+
 /** Any tile with a building on it (including a Road) is a little slower to pass through, on top of whatever terrain/Road math already applies. */
 export const BUILDING_MOVE_PENALTY_MULT = 1.125;
 
+/** How much of a terrain's movement penalty (or Plains's speed buff) a plain Road cuts, versus a Stone Road's full-strength effect. */
+export const ROAD_STRENGTH = 0.25;
+export const STONE_ROAD_STRENGTH = 0.5;
+
 /**
- * A Road halves whatever penalty a terrain tile would otherwise cost (e.g.
- * Forest's 2.0x becomes 1.5x), and boosts a terrain's speed *buff* (a
- * sub-1.0 multiplier, currently only Plains) by half again in the other
- * direction (0.8x becomes 0.7x). Neutral terrain (1.0x) is untouched.
+ * A Road (and, more strongly, a Stone Road) eases whatever penalty a terrain
+ * tile would otherwise cost (e.g. at `strength` 0.5, Forest's 2.0x becomes
+ * 1.5x), and boosts a terrain's speed *buff* (a sub-1.0 multiplier,
+ * currently only Plains) by the same fraction again in the other direction
+ * (0.8x becomes 0.7x at strength 0.5). Neutral terrain (1.0x) is untouched.
  */
-export function roadAdjustedMoveMult(baseMult: number): number {
-  if (baseMult > 1) return 1 + (baseMult - 1) * 0.5;
-  if (baseMult < 1) return 1 - (1 - baseMult) * 1.5;
+export function roadAdjustedMoveMult(baseMult: number, strength: number): number {
+  if (baseMult > 1) return 1 + (baseMult - 1) * (1 - strength);
+  if (baseMult < 1) return 1 - (1 - baseMult) * (1 + strength);
   return baseMult;
 }
 
@@ -410,7 +452,7 @@ export const CASTLE_ATTACK = {
   attackSpeedMs: TROOPS.archer.attackSpeedMs,
 };
 
-export const MATCH_DURATION_MS = 5 * 60 * 1000;
+export const MATCH_DURATION_MS = 10 * 60 * 1000;
 
 export const SCORE = {
   buildingDestroyed: 1,

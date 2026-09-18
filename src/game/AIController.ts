@@ -279,16 +279,28 @@ export class AIController {
    * The one place a Farm still gets built for its own sake (food/straw),
    * rather than as a stepping-stone toward some other terrain (see
    * tryExpandToward) -- and only when there's an actual reason to: no Farm
-   * already on the way, and existing food income isn't comfortably ahead of
-   * what it's feeding. A Farm's gold cost escalates with every instance
-   * ever built, so reaching for "just one more" reflexively, the way an
-   * uncapped/unconditional wishlist entry used to, is a real net loss once
-   * the settlement already has more food than its army needs.
+   * already on the way, and existing food *or* straw income isn't
+   * comfortably ahead of what it's feeding. A Farm's gold cost escalates
+   * with every instance ever built, so reaching for "just one more"
+   * reflexively, the way an uncapped/unconditional wishlist entry used to,
+   * is a real net loss once the settlement already has plenty of both.
+   *
+   * Checking straw here (not just food) matters because Farm is the only
+   * thing in either priority list that produces it at all, capped at one
+   * instance in BUILD_WISHLIST specifically to stop early-game farm-spam --
+   * but the single Lumber Mill/Fisher's Hut/Quarry/House upkeep that thins
+   * straw out was never going to fix itself without a second Farm's income,
+   * and nothing else in the wishlist can ever satisfy `hasKnownRescueFor`
+   * for straw. Without this, a single Farm's straw output becomes a
+   * permanent ceiling the instant 2 Lumber Mills eat into it: every later
+   * item's own solvency check fails forever, with no rescue in sight,
+   * because the one building that could actually fix it is sitting right
+   * here, gated on the wrong resource.
    */
   private maybeBuildSurplusFarm() {
     if (this.hasAnyDeficit()) return;
     if (this.state.buildingsOf(this.me).some((b) => b.type === 'farm' && b.state !== 'active')) return;
-    if (this.state.netResourceRatePerSec(this.me, 'food') > 0.5) return;
+    if (this.state.netResourceRatePerSec(this.me, 'food') > 0.5 && this.state.netResourceRatePerSec(this.me, 'straw') > 0.5) return;
     const territory = this.state.ownedTerritoryTiles(this.me);
     const spot = territory.find(
       (tile) => this.state.canBuildAt(this.me, tile).ok && this.state.availableBuildingsFor(this.me, tile).includes('farm')
@@ -363,13 +375,14 @@ export class AIController {
    * the map, then claim whichever owned-but-unbuilt tile is closest to it --
    * a Road when the AI can actually pay for one, since it's a flat cost with
    * no per-instance escalation and doubles as a speed boost, unlike a Farm
-   * trail whose price climbs every time (10, 12, 16, 22, ...). In practice a
-   * Road needs wood + stone that don't exist yet before a Lumber Mill or
-   * Quarry does -- exactly the buildings this expansion is usually trying to
-   * reach -- so early on this always falls back to a Farm, which only costs
-   * gold. That one claim pushes territory a ring closer; repeating this over
-   * successive cycles walks the settlement toward the resource instead of
-   * leaving it permanently locked out of an entire branch of the tech tree.
+   * trail whose price climbs every time (10, 12, 16, 22, ...). A Road only
+   * needs wood now, so it's genuinely affordable the moment any Lumber Mill
+   * exists; before that (reaching the very first Lumber Mill) there's no
+   * wood income yet at all, so this still falls back to a Farm, which only
+   * costs gold. That one claim pushes territory a ring closer; repeating
+   * this over successive cycles walks the settlement toward the resource
+   * instead of leaving it permanently locked out of an entire branch of the
+   * tech tree.
    */
   private tryExpandToward(type: BuildingType): boolean {
     // Quarry doesn't declare requiresAdjacentTerrain -- any Hills tile
@@ -382,17 +395,33 @@ export class AIController {
     if (!reqTerrain) return false;
     const target = this.state.nearestTerrainTile(this.me, reqTerrain);
     if (!target) return false;
-    const claimTile = this.state.closestBuildableTerritoryTile(this.me, target);
-    if (!claimTile) return false;
-    const options = this.state.availableBuildingsFor(this.me, claimTile);
-    // Try whichever of these the AI can actually afford right now, in order
-    // of preference -- picking 'road' unconditionally (the old behavior)
-    // meant this whole call quietly failed every time early on instead of
-    // falling back to the Farm sitting right there as a real option.
+
+    // The single geometrically-nearest owned tile isn't always a usable
+    // stepping stone -- if it's across a river, its only buildable option is
+    // a Bridge, which needs wood and stone the AI doesn't have this early
+    // (and can't get without a Lumber Mill/Quarry, which is exactly what
+    // it's trying to reach). Picking only that one nearest tile used to mean the
+    // whole settlement froze in place the instant its territory happened to
+    // border water before it had any wood or stone income -- a live 10-
+    // minute trace reproduced exactly this: 2 Farms and a Barracks, then
+    // zero progress for the rest of the match. Walking outward in distance
+    // order and taking the first tile with a claim actually affordable
+    // right now finds a way around the water instead of stopping at it (the
+    // map's own connectivity guarantee -- see mapGen's ensureConnectivity --
+    // means a plain-ground route to the other side always exists somewhere
+    // in owned-or-reachable territory).
+    const candidates = this.state
+      .ownedTerritoryTiles(this.me)
+      .filter((tile) => this.state.canBuildAt(this.me, tile).ok)
+      .sort((a, b) => hexDistance(a, target) - hexDistance(b, target));
+
     const preferenceOrder: BuildingType[] = ['road', 'farm'];
-    const claimType = preferenceOrder.find((t) => options.includes(t) && this.canAfford(t)) ?? options[0];
-    if (!claimType) return false;
-    return this.state.issueBuild(this.me, claimTile, claimType).ok;
+    for (const claimTile of candidates) {
+      const options = this.state.availableBuildingsFor(this.me, claimTile);
+      const claimType = preferenceOrder.find((t) => options.includes(t) && this.canAfford(t)) ?? options.find((t) => this.canAfford(t));
+      if (claimType && this.state.issueBuild(this.me, claimTile, claimType).ok) return true;
+    }
+    return false;
   }
 
   private canAfford(type: BuildingType): boolean {
