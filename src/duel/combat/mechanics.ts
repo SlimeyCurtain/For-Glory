@@ -13,6 +13,9 @@ import type { Pose } from './pose';
  */
 export function applyBodyMechanics(pose: Pose, dodgeDir: -1 | 0 | 1, dodgeArc: number): Pose {
   const twist = pose.torso[1]; // rotation about the vertical axis driving a swing
+  // Knee flexion is negative (see pose.ts's REST_POSE comment -- a knee bends
+  // toward the back of the leg, the opposite sense from an elbow), so
+  // "bend the knees more" subtracts here, not adds.
   const crouch = Math.abs(twist) * 0.22 + dodgeArc * 0.18; // load into a swing, push off into a dodge
   const weightShift = twist * 0.18; // torso rotating one way plants weight on the opposite leg
   const dodgeLean = dodgeDir * dodgeArc;
@@ -21,8 +24,8 @@ export function applyBodyMechanics(pose: Pose, dodgeDir: -1 | 0 | 1, dodgeArc: n
     ...pose,
     hips: [pose.hips[0], pose.hips[1] + twist * 0.5, pose.hips[2] + dodgeLean * 0.12],
     torso: [pose.torso[0], pose.torso[1], pose.torso[2] - dodgeLean * 0.15],
-    rKnee: [pose.rKnee[0] + crouch, pose.rKnee[1], pose.rKnee[2]],
-    lKnee: [pose.lKnee[0] + crouch, pose.lKnee[1], pose.lKnee[2]],
+    rKnee: [pose.rKnee[0] - crouch, pose.rKnee[1], pose.rKnee[2]],
+    lKnee: [pose.lKnee[0] - crouch, pose.lKnee[1], pose.lKnee[2]],
     rHip: [pose.rHip[0] + weightShift - dodgeLean * 0.15, pose.rHip[1], pose.rHip[2]],
     lHip: [pose.lHip[0] - weightShift + dodgeLean * 0.15, pose.lHip[1], pose.lHip[2]],
   };

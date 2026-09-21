@@ -10,18 +10,27 @@ export type PartialPose = Partial<Record<JointName, Angles>>;
  * forward with the elbow flexed to bring the blade up in front of the
  * chest, off-arm relaxed/guarding.
  *
- * A note on the elbow/knee sign convention, since it's easy to get backwards
- * (and was, until this pose set was rebuilt): each limb segment hangs
- * straight down when its own rotation is 0, so a joint's rotation is really
- * "how far this segment has swung from vertical" -- and for a two-segment
- * chain (upper arm -> forearm) both rotating around the same axis, those
- * angles simply ADD. That means a POSITIVE elbow value continues curling the
+ * A note on the elbow/knee sign convention, since it's easy to get backwards:
+ * each limb segment hangs straight down when its own rotation is 0, so a
+ * joint's rotation is really "how far this segment has swung from vertical"
+ * -- and for a two-segment chain (e.g. upper arm -> forearm) both rotating
+ * around the same axis, those angles simply ADD.
+ *
+ * For the ARM that means a POSITIVE elbow value continues curling the
  * forearm in the same rotational direction the shoulder already swung it --
- * genuine flexion, the hand coming up toward the shoulder. A NEGATIVE elbow
- * value swings the forearm back the other way, past straight, into
- * hyperextension -- which reads exactly like the weapon's weight is dragging
- * the forearm down and buckling the joint backward. Elbows and knees below
- * are all positive for this reason; see JOINT_LIMITS.
+ * genuine flexion, the hand coming up toward the shoulder, since an elbow
+ * flexes toward the FRONT of the arm.
+ *
+ * The LEG is the mirror image, not the same rule: a knee flexes toward the
+ * BACK of the leg (crouching swings the shin behind the thigh, not in front
+ * of it), the opposite rotational sense from the elbow relative to how its
+ * parent limb points. With the hip near neutral (leg hanging straight down,
+ * as below), that means a NEGATIVE knee value is the one that bends the
+ * shin backward like a real knee; positive swings it forward into a
+ * hyperextended, reverse-jointed look that also reads as the leg buckling
+ * under the character's own weight rather than supporting it. So elbows are
+ * positive and knees are negative here -- not a typo, and not the same sign
+ * for both; see JOINT_LIMITS below, which enforces each direction to match.
  */
 export const REST_POSE: Pose = {
   hips: [0, 0, 0],
@@ -32,9 +41,9 @@ export const REST_POSE: Pose = {
   lShoulder: [0.5, 0, 0.35],
   lElbow: [0.65, 0, 0],
   lHip: [0.1, 0, 0.05],
-  lKnee: [0.22, 0, 0],
+  lKnee: [-0.22, 0, 0],
   rHip: [-0.08, 0, -0.05],
-  rKnee: [0.18, 0, 0],
+  rKnee: [-0.18, 0, 0],
 };
 
 export const BLOCK_POSE_SWORD: Pose = {
@@ -102,12 +111,12 @@ export const JOINT_LIMITS: Record<JointName, readonly [Angles, Angles]> = {
     [0.6, 0.25, 0.35],
   ],
   rKnee: [
-    [-0.05, -0.08, -0.08],
-    [1.7, 0.08, 0.08],
+    [-1.7, -0.08, -0.08],
+    [0.05, 0.08, 0.08],
   ],
   lKnee: [
-    [-0.05, -0.08, -0.08],
-    [1.7, 0.08, 0.08],
+    [-1.7, -0.08, -0.08],
+    [0.05, 0.08, 0.08],
   ],
 };
 
