@@ -128,12 +128,16 @@ function buildJaggedBlade(mats: ReturnType<typeof buildGoblinMaterials>): THREE.
   shape.lineTo(w * 0.4, 0);
   shape.lineTo(0, 0);
 
+  // The shape above is authored with its length along its own local Y (grip
+  // end at y=0, tip at y=bladeLen+0.08) -- deliberately the same convention
+  // buildSword uses, so it needs no extra rotation to stand the blade up
+  // away from the grip. (center() recenters the mesh on that Y range, so the
+  // position offset below has to restore the same half-length it just
+  // removed, plus a small grip gap, rather than reusing bladeLen directly.)
   const bladeGeo = new THREE.ExtrudeGeometry(shape, { depth: 0.02, bevelEnabled: false });
   bladeGeo.center();
   const blade = new THREE.Mesh(bladeGeo, mats.blade);
-  blade.rotation.z = Math.PI / 2;
-  blade.position.y = bladeLen / 2 + 0.05;
-  blade.position.x = 0;
+  blade.position.y = (bladeLen + 0.08) / 2 + 0.05;
   weapon.add(blade);
 
   weapon.traverse((o) => {
@@ -294,7 +298,15 @@ export class Fighter {
     } else {
       this.weapon = buildJaggedBlade(gMat!);
     }
-    this.weapon.rotation.x = Math.PI * 0.06;
+    // Both builders lay the blade out toward local +Y and the grip toward -Y.
+    // A hand attach point (any segment's `end`, see rig.ts) has local +Y
+    // pointing back up the limb toward the elbow -- the segment's mesh itself
+    // hangs the other way, in *its own* local -Y, and `end` inherits that
+    // same unrotated frame. So without this flip the blade end sits back
+    // toward the elbow and the pommel end sticks out past the fingers: the
+    // sword held backwards. Rotating the whole weapon 180 degrees swaps
+    // which local half maps to "away from the hand".
+    this.weapon.rotation.x = Math.PI + Math.PI * 0.06;
     rArm.hand.add(this.weapon);
 
     // offhand (shield for goblin, empty for knight)
