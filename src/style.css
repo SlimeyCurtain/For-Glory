@@ -423,20 +423,6 @@ body.hud-hidden #ui-root {
   background: #eaad3f;
 }
 
-#duel-nav-link {
-  color: #cbb98c;
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  opacity: 0.8;
-  border-bottom: 1px solid rgba(203, 185, 140, 0.4);
-  padding-bottom: 1px;
-}
-
-#duel-nav-link:hover {
-  opacity: 1;
-}
-
 /* The mobile/desktop toggle lives outside #title-screen in the DOM (it's a
    permanent fixture, not part of one screen) but visually "belongs" to the
    title screen until Start is pressed -- this repositions/enlarges it to
