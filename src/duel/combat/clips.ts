@@ -22,6 +22,10 @@ function kf(t: number, pose: PartialPose, base?: Pose): Keyframe {
 }
 
 // --- Attack 1: opener -- horizontal swing, sword right -> left. -----------
+// Elbow bends *more* on the windup (cocking the blade in close) and opens up
+// through impact/follow-through -- like a real swing, not a locked-straight
+// arm at either end. See pose.ts's REST_POSE comment for why these are all
+// positive (genuine flexion, not hyperextension).
 const ATTACK_1: AttackClip = {
   duration: 0.5,
   impactFrac: 0.55,
@@ -29,9 +33,9 @@ const ATTACK_1: AttackClip = {
   maxDamage: 16,
   name: 'opener-horizontal-rl',
   keyframes: [
-    kf(0, { rShoulder: [1.55, 0.3, -1.45], rElbow: [-0.9, 0, 0], torso: [0.05, 0.35, 0.05] }),
-    kf(0.55, { rShoulder: [1.45, -0.2, 1.05], rElbow: [-0.55, 0, 0], torso: [0.02, -0.35, 0] }),
-    kf(1, { rShoulder: [1.35, -0.15, 1.2], rElbow: [-0.6, 0, 0], torso: [0.02, -0.25, 0] }),
+    kf(0, { rShoulder: [1.55, 0.3, -1.45], rElbow: [1.6, 0, 0], torso: [0.05, 0.35, 0.05] }),
+    kf(0.55, { rShoulder: [1.45, -0.2, 1.05], rElbow: [0.65, 0, 0], torso: [0.02, -0.35, 0] }),
+    kf(1, { rShoulder: [1.35, -0.15, 1.2], rElbow: [0.75, 0, 0], torso: [0.02, -0.25, 0] }),
   ],
 };
 
@@ -43,9 +47,9 @@ const ATTACK_2: AttackClip = {
   maxDamage: 19,
   name: 'combo2-horizontal-lr',
   keyframes: [
-    kf(0, { rShoulder: [1.35, -0.15, 1.2], rElbow: [-0.6, 0, 0], torso: [0.02, -0.25, 0] }),
-    kf(0.5, { rShoulder: [1.45, 0.15, -0.9], rElbow: [-0.55, 0, 0], torso: [0.03, 0.3, 0] }),
-    kf(1, { rShoulder: [1.55, 0.3, -1.35], rElbow: [-0.75, 0, 0], torso: [0.05, 0.35, 0.03] }),
+    kf(0, { rShoulder: [1.35, -0.15, 1.2], rElbow: [0.75, 0, 0], torso: [0.02, -0.25, 0] }),
+    kf(0.5, { rShoulder: [1.45, 0.15, -0.9], rElbow: [0.65, 0, 0], torso: [0.03, 0.3, 0] }),
+    kf(1, { rShoulder: [1.55, 0.3, -1.35], rElbow: [0.95, 0, 0], torso: [0.05, 0.35, 0.03] }),
   ],
 };
 
@@ -57,26 +61,26 @@ const ATTACK_3: AttackClip = {
   maxDamage: 22,
   name: 'combo3-thrust',
   keyframes: [
-    kf(0, { rShoulder: [1.55, 0.3, -1.35], rElbow: [-0.75, 0, 0], torso: [0.05, 0.35, 0.03] }),
+    kf(0, { rShoulder: [1.55, 0.3, -1.35], rElbow: [0.95, 0, 0], torso: [0.05, 0.35, 0.03] }),
     kf(0.3, {
       rShoulder: [1.4, 0.1, -0.5],
-      rElbow: [-1.4, 0, 0],
+      rElbow: [1.7, 0, 0],
       lShoulder: [1.3, -0.3, -0.15],
-      lElbow: [-1.3, 0, 0],
+      lElbow: [1.55, 0, 0],
       torso: [0.02, 0.1, 0],
     }),
     kf(0.6, {
       rShoulder: [1.55, 0, -0.1],
-      rElbow: [-0.15, 0, 0],
+      rElbow: [0.2, 0, 0],
       lShoulder: [1.5, 0, -0.1],
-      lElbow: [-0.2, 0, 0],
+      lElbow: [0.25, 0, 0],
       torso: [0.16, 0, 0],
     }),
     kf(1, {
       rShoulder: [1.45, 0.05, -0.25],
-      rElbow: [-0.55, 0, 0],
+      rElbow: [0.7, 0, 0],
       lShoulder: [1.0, -0.2, 0.3],
-      lElbow: [-0.8, 0, 0],
+      lElbow: [0.85, 0, 0],
       torso: [0.06, 0, 0],
     }),
   ],
@@ -92,14 +96,14 @@ const ATTACK_4: AttackClip = {
   keyframes: [
     kf(0, {
       rShoulder: [1.45, 0.05, -0.25],
-      rElbow: [-0.55, 0, 0],
+      rElbow: [0.7, 0, 0],
       lShoulder: [1.0, -0.2, 0.3],
-      lElbow: [-0.8, 0, 0],
+      lElbow: [0.85, 0, 0],
       torso: [0.06, 0, 0],
     }),
-    kf(0.22, { rShoulder: [1.7, 0.4, -1.1], rElbow: [-1.1, 0, 0], torso: [0.1, 0.3, 0.05] }),
-    kf(0.55, { rShoulder: [0.5, -0.5, 0.9], rElbow: [-0.3, 0, 0], torso: [0.05, -0.3, -0.05] }),
-    kf(1, { rShoulder: [0.65, -0.35, 0.8], rElbow: [-0.45, 0, 0], torso: [0.04, -0.2, -0.03] }),
+    kf(0.22, { rShoulder: [1.75, 0.4, -1.3], rElbow: [1.3, 0, 0], torso: [0.1, 0.3, 0.05] }),
+    kf(0.55, { rShoulder: [1.0, -0.4, 0.85], rElbow: [0.45, 0, 0], torso: [0.05, -0.3, -0.05] }),
+    kf(1, { rShoulder: [0.85, -0.3, 0.75], rElbow: [0.55, 0, 0], torso: [0.04, -0.2, -0.03] }),
   ],
 };
 

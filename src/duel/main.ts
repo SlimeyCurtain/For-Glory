@@ -179,6 +179,15 @@ if (import.meta.env.DEV) {
     get enemy() {
       return enemyCombat;
     },
+    get playerFighter() {
+      return playerFighter;
+    },
+    get enemyFighter() {
+      return enemyFighter;
+    },
+    get arena() {
+      return arena;
+    },
     setAiEnabled: (v: boolean) => {
       aiEnabled = v;
     },

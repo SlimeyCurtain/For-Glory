@@ -5,37 +5,54 @@ export type Angles = readonly [number, number, number];
 export type Pose = Record<JointName, Angles>;
 export type PartialPose = Partial<Record<JointName, Angles>>;
 
-/** Neutral fighting-ready stance: knees slightly bent, sword arm raised and forward, off-arm relaxed/guarding. */
+/**
+ * Neutral fighting-ready stance: knees slightly bent, sword arm raised and
+ * forward with the elbow flexed to bring the blade up in front of the
+ * chest, off-arm relaxed/guarding.
+ *
+ * A note on the elbow/knee sign convention, since it's easy to get backwards
+ * (and was, until this pose set was rebuilt): each limb segment hangs
+ * straight down when its own rotation is 0, so a joint's rotation is really
+ * "how far this segment has swung from vertical" -- and for a two-segment
+ * chain (upper arm -> forearm) both rotating around the same axis, those
+ * angles simply ADD. That means a POSITIVE elbow value continues curling the
+ * forearm in the same rotational direction the shoulder already swung it --
+ * genuine flexion, the hand coming up toward the shoulder. A NEGATIVE elbow
+ * value swings the forearm back the other way, past straight, into
+ * hyperextension -- which reads exactly like the weapon's weight is dragging
+ * the forearm down and buckling the joint backward. Elbows and knees below
+ * are all positive for this reason; see JOINT_LIMITS.
+ */
 export const REST_POSE: Pose = {
   hips: [0, 0, 0],
   torso: [0, 0, 0.02],
   head: [0.05, 0, 0],
-  rShoulder: [1.25, 0, -0.35],
-  rElbow: [-0.7, 0, 0],
-  lShoulder: [0.55, 0, 0.5],
-  lElbow: [-0.55, 0, 0],
-  lHip: [0.12, 0, 0.05],
-  lKnee: [-0.28, 0, 0],
-  rHip: [-0.1, 0, -0.05],
-  rKnee: [-0.22, 0, 0],
+  rShoulder: [1.1, 0, -0.25],
+  rElbow: [1.15, 0, 0],
+  lShoulder: [0.5, 0, 0.35],
+  lElbow: [0.65, 0, 0],
+  lHip: [0.1, 0, 0.05],
+  lKnee: [0.22, 0, 0],
+  rHip: [-0.08, 0, -0.05],
+  rKnee: [0.18, 0, 0],
 };
 
 export const BLOCK_POSE_SWORD: Pose = {
   ...REST_POSE,
   torso: [0.08, 0, 0],
-  rShoulder: [1.55, 0.5, -0.15],
-  rElbow: [-1.65, 0, 0],
-  lShoulder: [1.0, -0.3, 0.9],
-  lElbow: [-1.0, 0, 0],
+  rShoulder: [1.4, 0.35, -0.2],
+  rElbow: [1.5, 0, 0],
+  lShoulder: [1.05, -0.25, 0.7],
+  lElbow: [0.95, 0, 0],
 };
 
 export const BLOCK_POSE_SHIELD: Pose = {
   ...REST_POSE,
   torso: [0.1, 0.05, 0],
-  lShoulder: [1.5, 0, 0.25],
-  lElbow: [-1.35, 0, 0],
-  rShoulder: [0.9, 0, -0.55],
-  rElbow: [-0.9, 0, 0],
+  lShoulder: [1.3, 0, 0.15],
+  lElbow: [1.3, 0, 0],
+  rShoulder: [0.7, 0, -0.4],
+  rElbow: [0.5, 0, 0],
 };
 
 /**
@@ -69,12 +86,12 @@ export const JOINT_LIMITS: Record<JointName, readonly [Angles, Angles]> = {
     [2.0, 0.7, 1.8],
   ],
   rElbow: [
-    [-2.2, -0.12, -0.12],
-    [0.15, 0.12, 0.12],
+    [-0.15, -0.12, -0.12],
+    [2.3, 0.12, 0.12],
   ],
   lElbow: [
-    [-2.2, -0.12, -0.12],
-    [0.15, 0.12, 0.12],
+    [-0.15, -0.12, -0.12],
+    [2.3, 0.12, 0.12],
   ],
   rHip: [
     [-0.6, -0.25, -0.35],
@@ -85,12 +102,12 @@ export const JOINT_LIMITS: Record<JointName, readonly [Angles, Angles]> = {
     [0.6, 0.25, 0.35],
   ],
   rKnee: [
-    [-1.3, -0.08, -0.08],
-    [0.05, 0.08, 0.08],
+    [-0.05, -0.08, -0.08],
+    [1.7, 0.08, 0.08],
   ],
   lKnee: [
-    [-1.3, -0.08, -0.08],
-    [0.05, 0.08, 0.08],
+    [-0.05, -0.08, -0.08],
+    [1.7, 0.08, 0.08],
   ],
 };
 
