@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Duel of Honor</title>
+    <link rel="stylesheet" href="/src/duel/style.css" />
+  </head>
+  <body>
+    <div id="duel-app">
+      <canvas id="duel-canvas"></canvas>
+
+      <div id="duel-hud">
+        <div class="duel-bar-wrap duel-bar-left">
+          <div class="duel-name">Knight</div>
+          <div class="duel-bar"><div id="duel-hp-player" class="duel-bar-fill duel-bar-fill-player"></div></div>
+        </div>
+        <div class="duel-bar-wrap duel-bar-right">
+          <div class="duel-name">Goblin</div>
+          <div class="duel-bar"><div id="duel-hp-enemy" class="duel-bar-fill duel-bar-fill-enemy"></div></div>
+        </div>
+      </div>
+
+      <div id="duel-combo-indicator"></div>
+
+      <div id="duel-controls-hint">
+        <div class="duel-hint-half duel-hint-left">swipe = dodge&nbsp;&nbsp;&bull;&nbsp;&nbsp;hold = block</div>
+        <div class="duel-hint-half duel-hint-right">tap = attack&nbsp;&nbsp;&bull;&nbsp;&nbsp;tap again in rhythm = combo</div>
+      </div>
+
+      <div id="duel-touch-left" class="duel-touch-zone"></div>
+      <div id="duel-touch-right" class="duel-touch-zone"></div>
+    </div>
+
+    <div id="duel-rotate-overlay">
+      <div id="duel-rotate-message">Rotate your device to landscape to duel</div>
+    </div>
+
+    <div id="duel-title-screen">
+      <h1 id="duel-title-heading">Duel of Honor</h1>
+      <p id="duel-title-sub">Knight vs. Goblin</p>
+      <button id="duel-title-start" type="button">Start Duel</button>
+      <a id="duel-back-link" href="./index.html">&larr; Back to For Glory</a>
+    </div>
+
+    <div id="duel-end-overlay">
+      <div id="duel-end-text"></div>
+      <button id="duel-end-restart" type="button">Fight Again</button>
+      <a id="duel-end-back" href="./index.html">&larr; Back to For Glory</a>
+    </div>
+
+    <script type="module" src="/src/duel/main.ts"></script>
+  </body>
+</html>
