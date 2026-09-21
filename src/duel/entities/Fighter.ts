@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { JOINT_NAMES, makeSegment, type JointName } from './rig';
+import { JOINT_LIMITS } from '../combat/pose';
 
 export type FighterKind = 'knight' | 'goblin';
 
@@ -336,11 +337,21 @@ export class Fighter {
     }
   }
 
-  /** Applies an Euler-angle pose (radians) to every joint present in `pose`; joints not mentioned are left untouched. */
+  /**
+   * Applies an Euler-angle pose (radians) to every joint present in `pose`;
+   * joints not mentioned are left untouched. Every value is clamped to
+   * JOINT_LIMITS first -- a hard backstop so no pose, however it was
+   * produced, can ever bend a joint past what a real one could do.
+   */
   applyPose(pose: Partial<Record<JointName, readonly [number, number, number]>>) {
     for (const name of JOINT_NAMES) {
       const rot = pose[name];
-      if (rot) this.joints[name].rotation.set(rot[0], rot[1], rot[2]);
+      if (!rot) continue;
+      const [lo, hi] = JOINT_LIMITS[name];
+      const x = rot[0] < lo[0] ? lo[0] : rot[0] > hi[0] ? hi[0] : rot[0];
+      const y = rot[1] < lo[1] ? lo[1] : rot[1] > hi[1] ? hi[1] : rot[1];
+      const z = rot[2] < lo[2] ? lo[2] : rot[2] > hi[2] ? hi[2] : rot[2];
+      this.joints[name].rotation.set(x, y, z);
     }
   }
 }

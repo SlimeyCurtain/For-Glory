@@ -7,7 +7,13 @@ export const COMBO_WINDOW_MAX = 1.1;
 const REST_RECOVERY = 0.4;
 const DODGE_DURATION = 0.42;
 const DODGE_AMPLITUDE = 0.85;
-const BLEND_SPEED = 10; // pose-blend ease rate for idle/comboWait/resting transitions
+// How fast the rig actually chases whatever pose the state machine wants this
+// frame (a critically-damped spring, not an instant snap). This is the "give"
+// that keeps limbs from teleporting between keyframes -- combined with
+// quaternion slerp (see pose.ts) and the hard joint-angle clamps in
+// Fighter.applyPose, it's what turns "flailing" into "stiff, controlled
+// motion". Higher = snappier/more rigid, lower = heavier/laggier.
+const JOINT_STIFFNESS = 22;
 
 export type FighterState = 'idle' | 'attacking' | 'comboWait' | 'resting' | 'dead';
 
@@ -35,7 +41,10 @@ export class CombatController {
   private attackElapsed = 0;
   private impactResolved = false;
   private restTimer = 0;
-  private currentPose: Pose = REST_POSE;
+  /** What the state machine wants the pose to be *this frame*, before the stiffness spring. */
+  private targetPose: Pose = REST_POSE;
+  /** What's actually pushed to the rig -- eases toward targetPose at JOINT_STIFFNESS rather than snapping to it. */
+  private appliedPose: Pose = REST_POSE;
   private dodgeDir: -1 | 0 | 1 = 0;
   private dodgeElapsed = DODGE_DURATION;
   private laneX = 0;
@@ -50,7 +59,8 @@ export class CombatController {
   constructor(fighter: Fighter, events: CombatEvents = {}) {
     this.fighter = fighter;
     this.events = events;
-    this.currentPose = REST_POSE;
+    this.targetPose = REST_POSE;
+    this.appliedPose = REST_POSE;
     fighter.applyPose(REST_POSE);
   }
 
@@ -132,27 +142,30 @@ export class CombatController {
       this.updateAttacking(dt);
     } else if (this.state === 'resting') {
       this.restTimer -= dt;
-      this.currentPose = lerpPose(this.currentPose, REST_POSE, Math.min(1, dt * BLEND_SPEED));
+      this.targetPose = REST_POSE;
       if (this.restTimer <= 0) {
         this.state = 'idle';
         this.comboStep = 0;
       }
     } else if (this.state === 'comboWait') {
+      // Holds the just-finished attack's follow-through pose (targetPose is
+      // simply left as whatever updateAttacking last set it to) until either
+      // the next tap fires a new clip, or the combo window lapses and the
+      // fighter eases back down to a neutral stance on its own.
       const sinceInput = this.clock - this.lastAttackClockTime;
       if (sinceInput > COMBO_WINDOW_MAX + 0.35) {
-        this.currentPose = lerpPose(this.currentPose, REST_POSE, Math.min(1, dt * BLEND_SPEED * 0.6));
+        this.targetPose = REST_POSE;
       }
     } else if (this.state === 'idle') {
-      this.currentPose = lerpPose(this.currentPose, REST_POSE, Math.min(1, dt * BLEND_SPEED));
+      this.targetPose = REST_POSE;
     }
 
-    const blocking = this.isBlocking && this.state !== 'attacking';
-    if (blocking) {
-      const target = this.fighter.kind === 'knight' ? BLOCK_POSE_SWORD : BLOCK_POSE_SHIELD;
-      this.currentPose = lerpPose(this.currentPose, target, Math.min(1, dt * BLEND_SPEED * 1.4));
+    if (this.isBlocking && this.state !== 'attacking') {
+      this.targetPose = this.fighter.kind === 'knight' ? BLOCK_POSE_SWORD : BLOCK_POSE_SHIELD;
     }
 
-    this.fighter.applyPose(this.currentPose);
+    this.appliedPose = lerpPose(this.appliedPose, this.targetPose, Math.min(1, dt * JOINT_STIFFNESS));
+    this.fighter.applyPose(this.appliedPose);
   }
 
   private updateAttacking(dt: number) {
@@ -165,7 +178,7 @@ export class CombatController {
       this.opponent.resolveIncomingHit(raw);
     }
 
-    this.currentPose = evaluateClip(clip, this.attackElapsed);
+    this.targetPose = evaluateClip(clip, this.attackElapsed);
 
     if (this.attackElapsed >= clip.duration) {
       if (this.comboStep >= 4) {

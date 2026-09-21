@@ -1,8 +1,9 @@
 import { Arena, ENEMY_HUB, PLAYER_HUB } from './scene/Arena';
-import { Fighter } from './entities/Fighter';
+import { Fighter, type FighterKind } from './entities/Fighter';
 import { CombatController } from './combat/CombatController';
 import { TouchInput } from './input/TouchInput';
 import { AIController } from './ai/AIController';
+import { playFleshHit, playGrunt, playShieldBlock, playSwoosh, playSwordBlock, unlockAudio } from './audio/sound';
 
 const canvas = document.getElementById('duel-canvas') as HTMLCanvasElement;
 const arena = new Arena(canvas);
@@ -54,14 +55,41 @@ function showEnd(playerWon: boolean) {
   window.setTimeout(() => endOverlayEl.classList.add('visible'), 750);
 }
 
+/** Shared sound wiring for either fighter -- only the HP-bar/win-loss callbacks differ per side. */
+function soundEvents(kind: FighterKind) {
+  return {
+    onAttackStart: () => playGrunt(kind, 'effort'),
+    onEvade: () => playSwoosh(),
+    onHit: (_final: number, wasBlocked: boolean) => {
+      if (wasBlocked) {
+        // The block sound reflects what *this* fighter (the defender) is
+        // carrying -- the goblin's round shield vs. the knight's own blade.
+        if (kind === 'goblin') playShieldBlock();
+        else playSwordBlock();
+      } else {
+        playFleshHit();
+        playGrunt(kind, 'pain');
+      }
+    },
+  };
+}
+
 function buildControllers() {
   playerCombat = new CombatController(playerFighter, {
+    ...soundEvents('knight'),
     onHpChange: (hp, max) => updateHpBar(hpPlayerEl, hp, max),
-    onDeath: () => showEnd(false),
+    onDeath: () => {
+      playGrunt('knight', 'death');
+      showEnd(false);
+    },
   });
   enemyCombat = new CombatController(enemyFighter, {
+    ...soundEvents('goblin'),
     onHpChange: (hp, max) => updateHpBar(hpEnemyEl, hp, max),
-    onDeath: () => showEnd(true),
+    onDeath: () => {
+      playGrunt('goblin', 'death');
+      showEnd(true);
+    },
   });
   playerCombat.opponent = enemyCombat;
   enemyCombat.opponent = playerCombat;
@@ -128,6 +156,7 @@ function frame(now: number) {
 }
 
 titleStartBtn.addEventListener('click', () => {
+  unlockAudio(); // must happen inside this user-gesture handler or the browser blocks audio entirely
   titleScreenEl.classList.add('hidden');
   running = true;
   window.setTimeout(() => hintEl.classList.add('faded'), 2600);
