@@ -1,5 +1,6 @@
 import type { Fighter } from '../entities/Fighter';
 import { COMBO_CLIPS, evaluateClip } from './clips';
+import { applyBodyMechanics } from './mechanics';
 import { BLOCK_POSE_SHIELD, BLOCK_POSE_SWORD, REST_POSE, lerpPose, type Pose } from './pose';
 
 export const COMBO_WINDOW_MIN = 0.9;
@@ -47,6 +48,7 @@ export class CombatController {
   private appliedPose: Pose = REST_POSE;
   private dodgeDir: -1 | 0 | 1 = 0;
   private dodgeElapsed = DODGE_DURATION;
+  private dodgeArc = 0;
   private laneX = 0;
   private deathElapsed = 0;
   /** Internal seconds clock, advanced only by update(dt). All combo-window timing is measured
@@ -164,7 +166,8 @@ export class CombatController {
       this.targetPose = this.fighter.kind === 'knight' ? BLOCK_POSE_SWORD : BLOCK_POSE_SHIELD;
     }
 
-    this.appliedPose = lerpPose(this.appliedPose, this.targetPose, Math.min(1, dt * JOINT_STIFFNESS));
+    const mechanicalPose = applyBodyMechanics(this.targetPose, this.dodgeDir, this.dodgeArc);
+    this.appliedPose = lerpPose(this.appliedPose, mechanicalPose, Math.min(1, dt * JOINT_STIFFNESS));
     this.fighter.applyPose(this.appliedPose);
   }
 
@@ -194,8 +197,8 @@ export class CombatController {
   private updateDodgePosition(dt: number) {
     this.dodgeElapsed = Math.min(this.dodgeElapsed + dt, DODGE_DURATION);
     const t = Math.min(this.dodgeElapsed / DODGE_DURATION, 1);
-    const arc = Math.sin(Math.PI * t); // 0 -> 1 -> 0
-    this.laneX = this.dodgeDir * DODGE_AMPLITUDE * arc;
+    this.dodgeArc = Math.sin(Math.PI * t); // 0 -> 1 -> 0
+    this.laneX = this.dodgeDir * DODGE_AMPLITUDE * this.dodgeArc;
   }
 
   private updateDeath(dt: number) {
